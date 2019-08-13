@@ -19,7 +19,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         try {
-            AACADTSAudioBundleSource source = new AACADTSAudioBundleSource(new byte[] {1, 2, 3, 4});
+            AACADTSAudioBundleSource source = new AACADTSAudioBundleSource(/*put data source here*/);
             MediaPlayer player = new MediaPlayer();
             player.setDataSource(source);
             player.prepare();

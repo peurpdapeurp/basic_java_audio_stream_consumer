@@ -36,6 +36,6 @@ public class AACADTSAudioBundleSource extends MediaDataSource {
 
     @Override
     public long getSize() throws IOException {
-        return 0;
+        return buffer_.length;
     }
 }

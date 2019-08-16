@@ -45,6 +45,49 @@ public class AudioDecoderThread {
     private boolean eosReceived;
     private int mSampleRate = 0;
 
+    public void startPlay(AACADTSFrameSource source) throws IOException {
+        eosReceived = false;
+        mExtractor = new MediaExtractor();
+        try {
+            mExtractor.setDataSource(source);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        int channel = 0;
+        for (int i = 0; i < mExtractor.getTrackCount(); i++) {
+            MediaFormat format = mExtractor.getTrackFormat(i);
+            String mime = format.getString(MediaFormat.KEY_MIME);
+            if (mime.startsWith("audio/")) {
+                mExtractor.selectTrack(i);
+                Log.d( TAG, "format : " + format);
+                ByteBuffer csd = format.getByteBuffer("csd-0");
+
+                for (int k = 0; k < csd.capacity(); ++k) {
+                    Log.e( TAG, "csd : " + csd.array()[k]);
+                }
+                mSampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                channel = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                break;
+            }
+        }
+        MediaFormat format = makeAACCodecSpecificData(MediaCodecInfo.CodecProfileLevel.AACObjectLC, mSampleRate, channel);
+        if (format == null)
+            return;
+
+        mDecoder = MediaCodec.createDecoderByType("audio/mp4a-latm");
+        mDecoder.configure(format, null, null, 0);
+
+        if (mDecoder == null) {
+            Log.e(TAG, "Can't find video info!");
+            return;
+        }
+
+        mDecoder.start();
+
+        new Thread(AACDecoderAndPlayRunnable).start();
+    }
+
     /**
      *
      * @param path
@@ -168,6 +211,8 @@ public class AudioDecoderThread {
                 AudioFormat.ENCODING_PCM_16BIT,
                 buffsize,
                 AudioTrack.MODE_STREAM);
+        int sampleRate = AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC);
+        audioTrack.setPlaybackRate(sampleRate/2);
         audioTrack.play();
 
         while (!eosReceived) {

@@ -10,9 +10,17 @@ import android.media.MediaFormat;
 import android.os.Bundle;
 import android.util.Log;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Random;
+import java.util.RandomAccess;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -32,9 +40,16 @@ public class MainActivity extends AppCompatActivity {
 
         testFilePath = getExternalCacheDir().getAbsolutePath() + "/test.aac";
 
+//        byte[] musicSampleArray = AudioProcessingHelpers.getByteArraysAsSingleArray(TestFrames.MUSIC_ADTS_FRAME_BUFFERS);
+        byte[] musicSampleArray = AudioProcessingHelpers.getFileAsByteArray(testFilePath);
+
+        AACADTSFrameSource source = new AACADTSFrameSource(musicSampleArray);
+
+        Log.d(TAG, "Contents of music sample array: " + Helpers.bytesToHex(musicSampleArray));
+
         AudioDecoderThread decoderThread = new AudioDecoderThread();
         try {
-            decoderThread.startPlay(testFilePath);
+            decoderThread.startPlay(source);
         } catch (IOException e) {
             e.printStackTrace();
         }

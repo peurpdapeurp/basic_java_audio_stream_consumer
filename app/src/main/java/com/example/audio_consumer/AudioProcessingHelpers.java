@@ -8,6 +8,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 
 public class AudioProcessingHelpers {
@@ -101,6 +102,34 @@ public class AudioProcessingHelpers {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    public static byte[] getByteArraysAsSingleArray(byte[][] arrays) {
+        int singleAudioFileArrayLength = 0;
+        for (int i = 0; i < arrays.length; i++) {
+            singleAudioFileArrayLength += arrays[i].length;
+        }
+        byte[] singleAudioFileArray = new byte[singleAudioFileArrayLength];
+        int currentOffset = 0;
+        for (int i = 0; i < arrays.length; i++) {
+            System.arraycopy(arrays[i], 0, singleAudioFileArray, currentOffset,
+                    arrays[i].length);
+            currentOffset += arrays[i].length;
+        }
+        return singleAudioFileArray;
+    }
+
+    public static byte[] getFileAsByteArray(String filePath) {
+        RandomAccessFile f = null;
+        byte[] musicSampleArray = null;
+        try {
+            f = new RandomAccessFile(filePath, "r");
+            musicSampleArray = new byte[(int) f.length()];
+            f.readFully(musicSampleArray);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return musicSampleArray;
     }
 
 }

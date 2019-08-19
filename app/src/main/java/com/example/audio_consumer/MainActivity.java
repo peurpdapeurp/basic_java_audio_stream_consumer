@@ -5,6 +5,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
 import com.google.android.exoplayer2.ExoPlayer;
@@ -17,10 +18,21 @@ import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.util.Util;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
+
+    InputStream is_;
+    OutputStream os_;
+
+    ParcelFileDescriptor[] parcelFileDescriptors_;
+    ParcelFileDescriptor parcelRead_;
+    ParcelFileDescriptor parcelWrite_;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -31,13 +43,33 @@ public class MainActivity extends AppCompatActivity {
 
         AudioProcessingHelpers.writeTestAudioToFile(filePath);
 
+        try {
+            parcelFileDescriptors_ = ParcelFileDescriptor.createPipe();
+            parcelRead_ = new ParcelFileDescriptor(parcelFileDescriptors_[0]);
+            parcelWrite_ = new ParcelFileDescriptor(parcelFileDescriptors_[1]);
+
+            is_ = new ParcelFileDescriptor.AutoCloseInputStream(parcelRead_);
+            os_ = new ParcelFileDescriptor.AutoCloseOutputStream(parcelWrite_);
+
+            os_.write(TestFrames.MUSIC_ADTS_FRAME_BUFFERS[0]);
+            os_.write(TestFrames.MUSIC_ADTS_FRAME_BUFFERS[1]);
+            os_.write(TestFrames.MUSIC_ADTS_FRAME_BUFFERS[2]);
+            os_.write(TestFrames.MUSIC_ADTS_FRAME_BUFFERS[3]);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
         ExoPlayer player = ExoPlayerFactory.newSimpleInstance(this);
-        // Produces DataSource instances through which media data is loaded.
-        DataSource.Factory dataSourceFactory = new DefaultDataSourceFactory(this,
-                Util.getUserAgent(this, "test"));
+
         // This is the MediaSource representing the media to be played.
-        MediaSource audioSource = new ProgressiveMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(Uri.fromFile(new File(filePath)));
+        MediaSource audioSource = new ProgressiveMediaSource.Factory(
+                () -> {
+                    InputStreamDataSource dataSource =
+                            new InputStreamDataSource(is_);
+                    return dataSource;
+                })
+                .createMediaSource(Uri.parse("fake_uri"));
 
         player.addListener(new Player.EventListener() {
             @Override

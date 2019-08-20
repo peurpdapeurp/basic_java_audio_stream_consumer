@@ -9,6 +9,8 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
 
+    StreamPlayerTester streamPlayerTester_;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -18,9 +20,10 @@ public class MainActivity extends AppCompatActivity {
 
         AudioProcessingHelpers.writeTestAudioToFile(filePath);
 
-        AudioProcessingHelpers.playAudioFileFromCacheWithExoPlayer(this, filePath);
+        // AudioProcessingHelpers.playAudioFileFromCacheWithExoPlayer(this, filePath);
 
-        AudioProcessingHelpers.playAudioFileFromInputStreamWithExoPlayer(this, TestFrames.MUSIC_ADTS_FRAME_BUFFERS);
+        streamPlayerTester_ = new StreamPlayerTester(this, TestFrames.MUSIC_ADTS_FRAME_BUFFERS);
+        streamPlayerTester_.startPlaying();
 
     }
 

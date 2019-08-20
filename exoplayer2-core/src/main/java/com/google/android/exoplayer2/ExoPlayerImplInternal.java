@@ -441,7 +441,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
     loadControl.onPrepared();
     this.mediaSource = mediaSource;
     setState(Player.STATE_BUFFERING);
-    Log.d(TAG, "prepareInternal: State was set to STATE_BUFFERING.");
     mediaSource.prepareSource(/* listener= */ this, bandwidthMeter.getTransferListener());
     handler.sendEmptyMessage(MSG_DO_SOME_WORK);
   }
@@ -596,12 +595,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
             || playingPeriodDurationUs <= playbackInfo.positionUs)
             && playingPeriodHolder.info.isFinal) {
       setState(Player.STATE_ENDED);
-      Log.d(TAG, "doSomeWork: State was set to STATE_ENDED.");
       stopRenderers();
     } else if (playbackInfo.playbackState == Player.STATE_BUFFERING
             && shouldTransitionToReadyState(renderersReadyOrEnded)) {
       setState(Player.STATE_READY);
-      Log.d(TAG, "doSomeWork: State was set to STATE_READY.");
       if (playWhenReady) {
         startRenderers();
       }
@@ -609,7 +606,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
             && !(enabledRenderers.length == 0 ? isTimelineReady() : renderersReadyOrEnded)) {
       rebuffering = playWhenReady;
       setState(Player.STATE_BUFFERING);
-      Log.d(TAG, "doSomeWork: State was set to STATE_BUFFERING.");
       stopRenderers();
     }
 
@@ -673,7 +669,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
       } else if (periodPositionUs == C.TIME_UNSET) {
         // End playback, as we didn't manage to find a valid seek position.
         setState(Player.STATE_ENDED);
-        Log.d(TAG, "seekToInternal: State was set to STATE_ENDED.");
         resetInternal(
                 /* resetRenderers= */ false,
                 /* releaseMediaSource= */ false,
@@ -719,21 +714,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
   private long seekToPeriodPosition(
           MediaPeriodId periodId, long periodPositionUs, boolean forceDisableRenderers)
           throws ExoPlaybackException {
-
-    Log.d(TAG, "seekToPeriodPosition: Called with these parameters: " + "\n" +
-            "periodId.isAd(): " + periodId.isAd() + "\n" +
-            "periodId.adGroupIndex: " + periodId.adGroupIndex + "\n" +
-            "periodId.adIndexInAdGroup: " + periodId.adIndexInAdGroup + "\n" +
-            "periodId.nextAdGroupIndex: " + periodId.nextAdGroupIndex + "\n" +
-            "periodId.periodUid: " + periodId.periodUid + "\n" +
-            "periodId.windowSequenceNumber: " + periodId.windowSequenceNumber + "\n" +
-            "periodPositionUs: " + periodPositionUs + "\n" +
-            "forceDisableRenderers: " + forceDisableRenderers);
-
     stopRenderers();
     rebuffering = false;
     setState(Player.STATE_BUFFERING);
-    Log.d(TAG, "seekToPeriodPosition: State was set to STATE_BUFFERING.");
 
     // Clear the timeline, but keep the requested period if it is already prepared.
     MediaPeriodHolder oldPlayingPeriodHolder = queue.getPlayingPeriod();
@@ -837,7 +820,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
     pendingPrepareCount = 0;
     loadControl.onStopped();
     setState(Player.STATE_IDLE);
-    Log.d(TAG, "stopInternal: State was set to STATE_IDLE.");
   }
 
   private void releaseInternal() {
@@ -848,7 +830,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
             /* resetState= */ true);
     loadControl.onReleased();
     setState(Player.STATE_IDLE);
-    Log.d(TAG, "releaseInternal: State was set to STATE_IDLE.");
     internalPlaybackThread.quit();
     synchronized (this) {
       released = true;
@@ -1399,7 +1380,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
   private void handleSourceInfoRefreshEndedPlayback() {
     setState(Player.STATE_ENDED);
-    Log.d(TAG, "handleSourceInfoRefreshEndedPlayback: State was set to STATE_ENDED.");
     // Reset, but retain the source so that it can still be used should a seek occur.
     resetInternal(
             /* resetRenderers= */ false,

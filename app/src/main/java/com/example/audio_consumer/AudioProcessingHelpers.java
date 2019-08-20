@@ -202,10 +202,11 @@ public class AudioProcessingHelpers {
             is_ = new ParcelFileDescriptor.AutoCloseInputStream(parcelRead_);
             os_ = new ParcelFileDescriptor.AutoCloseOutputStream(parcelWrite_);
 
-            os_.write(frames[0]);
-            os_.write(frames[1]);
-            os_.write(frames[2]);
-            os_.write(frames[3]);
+            for (int j = 0; j < 1000; j++) {
+                for (int i = 0; i < frames.length; i++) {
+                    os_.write(frames[i]);
+                }
+            }
 
         } catch (IOException e) {
             e.printStackTrace();

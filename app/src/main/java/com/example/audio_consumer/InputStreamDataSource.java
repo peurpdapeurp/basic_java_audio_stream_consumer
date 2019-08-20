@@ -46,11 +46,15 @@ public class InputStreamDataSource extends BaseDataSource {
         }
         opened_ = true;
         transferStarted(dataSpec);
-        return 0;
+        return C.LENGTH_UNSET;
     }
 
     @Override
     public int read(byte[] buffer, int offset, int readLength) throws IOException {
+//        if (offset + readLength > 6738) {
+//            Log.d(TAG, "read returned REOI");
+//            return C.RESULT_END_OF_INPUT;
+//        }
         //Log.d(TAG, "Attempting to read " + readLength + " bytes from input stream...");
         if (readLength == 0) {
             return 0;
@@ -60,7 +64,7 @@ public class InputStreamDataSource extends BaseDataSource {
         //Log.d(TAG, "Bytes available from input stream: " + bytesAvailable);
         readLength = Math.min(bytesAvailable, readLength);
         is_.read(buffer, offset, readLength);
-        if (readLength > 0) {
+        if (readLength > 3) {
             Log.d(TAG, "Successfully read " + readLength + " bytes from input stream.");
         }
         readPosition += readLength;

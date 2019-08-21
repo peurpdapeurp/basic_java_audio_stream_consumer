@@ -8,7 +8,6 @@ import android.util.Log;
 import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.ExoPlayerFactory;
-import com.google.android.exoplayer2.LoadControl;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.ProgressiveMediaSource;
@@ -18,9 +17,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-public class StreamPlayerTester {
+public class StreamPlayer {
 
-    private final static String TAG = "StreamPlayerTester";
+    private final static String TAG = "StreamPlayer";
 
     Context ctx_;
 
@@ -33,7 +32,7 @@ public class StreamPlayerTester {
 
     AudioWritingThread awt_;
 
-    public StreamPlayerTester(Context ctx, byte[][] frames) {
+    public StreamPlayer(Context ctx, byte[][] frames) {
 
         ctx_ = ctx;
 
@@ -53,17 +52,14 @@ public class StreamPlayerTester {
 
     }
 
-    public void startPlaying() {
+    public void startPlaying(int repeats) {
 
-        Log.d(TAG,"StreamPlayerTester started.");
+        Log.d(TAG,"StreamPlayer started.");
 
         ExoPlayer player = ExoPlayerFactory.newSimpleInstance(ctx_, new DefaultTrackSelector(),
                                                               new DefaultLoadControl.Builder()
                                                               .setBackBuffer(600, false)
-                                                              .setBufferDurationsMs(600,
-                                                                                    600,
-                                                                              600,
-                                                                    600)
+                                                              .setBufferDurationsMs(600, 600, 600, 600)
                                                               .setTargetBufferBytes(600)
                                                               .createDefaultLoadControl());
 
@@ -73,7 +69,8 @@ public class StreamPlayerTester {
                     InputStreamDataSource dataSource =
                             new InputStreamDataSource(is_);
                     return dataSource;
-                })
+                },
+                new AdtsExtractorFactory())
                 .createMediaSource(Uri.parse("fake_uri"));
 
         player.addListener(new Player.EventListener() {
@@ -104,9 +101,9 @@ public class StreamPlayerTester {
 
         player.setPlayWhenReady(true);
 
-        awt_.start();
+        awt_.start(repeats);
 
-        Log.d(TAG,"StreamPlayerTester stopped.");
+        Log.d(TAG,"StreamPlayer stopped.");
 
     }
 
@@ -117,13 +114,15 @@ public class StreamPlayerTester {
         private Thread t_;
         private OutputStream os_;
         private byte[][] frames_;
+        private int repeats_ = 1;
 
         AudioWritingThread(OutputStream os, byte[][] frames) {
             os_ = os;
             frames_ = frames;
         }
 
-        public void start() {
+        public void start(int repeats) {
+            repeats_ = repeats;
             if (t_ == null) {
                 t_ = new Thread(this);
                 t_.start();
@@ -145,11 +144,17 @@ public class StreamPlayerTester {
             Log.d(TAG,"AudioWritingThread started.");
 
             try {
-                 // for (int j = 0; j < 1000; j++) {
-                    for (int i = 0; i < frames_.length; i++) {
-                        os_.write(frames_[i]);
-                    }
-                // }
+                 for (int j = 0; j < repeats_; j++) {
+                     Log.d(TAG, "Wrote first half of test audio.");
+                     for (int i = 0; i < frames_.length/2; i++) {
+                         os_.write(frames_[i]);
+                     }
+                     //Thread.sleep(10000);
+                     Log.d(TAG, "Wrote second half of test audio.");
+                     for (int i = frames_.length/2; i < frames_.length; i++) {
+                         os_.write(frames_[i]);
+                     }
+                 }
             } catch (IOException e) {
                 e.printStackTrace();
             }

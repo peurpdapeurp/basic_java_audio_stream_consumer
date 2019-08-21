@@ -17,6 +17,8 @@ package com.google.android.exoplayer2.source;
 
 import android.net.Uri;
 import android.os.Handler;
+import android.util.Log;
+
 import androidx.annotation.Nullable;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.Format;
@@ -129,6 +131,8 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
   private int extractedSamplesCountAtStartOfLoad;
   private boolean loadingFinished;
   private boolean released;
+
+  private static final String TAG = "ProgressiveMediaPeriod";
 
   /**
    * @param uri The {@link Uri} of the media stream.

@@ -14,8 +14,6 @@ import java.io.InputStream;
 
 public class InputStreamDataSource extends BaseDataSource {
 
-    private static final String TAG = "InputStreamDataSource";
-
     private InputStream is_;
     private Uri uri_;
     private boolean opened_ = false;
@@ -51,24 +49,14 @@ public class InputStreamDataSource extends BaseDataSource {
 
     @Override
     public int read(byte[] buffer, int offset, int readLength) throws IOException {
-//        if (offset + readLength > 6738) {
-//            Log.d(TAG, "read returned REOI");
-//            return C.RESULT_END_OF_INPUT;
-//        }
-        //Log.d(TAG, "Attempting to read " + readLength + " bytes from input stream...");
         if (readLength == 0) {
             return 0;
         }
         int bytesAvailable = is_.available();
         if (bytesAvailable == 0) return 0;
-        //Log.d(TAG, "Bytes available from input stream: " + bytesAvailable);
         readLength = Math.min(bytesAvailable, readLength);
         is_.read(buffer, offset, readLength);
-        if (readLength > 3) {
-            Log.d(TAG, "Successfully read " + readLength + " bytes from input stream.");
-        }
         readPosition += readLength;
-        Log.d(TAG, "Current read position: " + readPosition);
         bytesTransferred(readLength);
         return readLength;
     }

@@ -1,4 +1,4 @@
-package com.example.audio_consumer;
+package com.example.audio_consumer.stream_fetcher.exoplayer_customization;
 
 import android.net.Uri;
 import android.util.Log;
@@ -27,7 +27,7 @@ public class InputStreamDataSource extends BaseDataSource {
      *                    that the InputStream object has already been initialized and is ready
      *                    to be read from.
      */
-    protected InputStreamDataSource(InputStream inputStream) {
+    public InputStreamDataSource(InputStream inputStream) {
         super(false);
         is_ = inputStream;
     }

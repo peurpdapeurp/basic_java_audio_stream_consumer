@@ -1,10 +1,12 @@
-package com.example.audio_consumer;
+package com.example.audio_consumer.stream_fetcher;
 
 import android.content.Context;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import com.example.audio_consumer.stream_fetcher.exoplayer_customization.AdtsExtractorFactory;
+import com.example.audio_consumer.stream_fetcher.exoplayer_customization.InputStreamDataSource;
 import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.ExoPlayerFactory;
@@ -13,12 +15,14 @@ import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.ProgressiveMediaSource;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 
+import net.named_data.jndn.Data;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.concurrent.LinkedTransferQueue;
 
-public class StreamPlayer {
+public class StreamPlayer implements NetworkThread.Observer {
 
     private final static String TAG = "StreamPlayer";
 
@@ -53,8 +57,9 @@ public class StreamPlayer {
 
     }
 
-    public void writeADTSFrames(byte[] frames) {
-        awt_.writeADTSFrames(frames);
+    @Override
+    public void onAudioPacketReceived(Data audioPacket) {
+        awt_.writeADTSFrames(audioPacket.getContent().getImmutableArray());
     }
 
     public void stop() {
@@ -71,7 +76,6 @@ public class StreamPlayer {
                                                               .setBufferDurationsMs(600, 600, 600, 600)
                                                               .setTargetBufferBytes(600)
                                                               .createDefaultLoadControl());
-
         // This is the MediaSource representing the media to be played.
         MediaSource audioSource = new ProgressiveMediaSource.Factory(
                 () -> {

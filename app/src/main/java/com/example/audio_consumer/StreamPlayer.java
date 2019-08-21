@@ -16,6 +16,7 @@ import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.concurrent.LinkedTransferQueue;
 
 public class StreamPlayer {
 
@@ -32,7 +33,7 @@ public class StreamPlayer {
 
     AudioWritingThread awt_;
 
-    public StreamPlayer(Context ctx, byte[][] frames) {
+    public StreamPlayer(Context ctx) {
 
         ctx_ = ctx;
 
@@ -48,11 +49,19 @@ public class StreamPlayer {
         is_ = new ParcelFileDescriptor.AutoCloseInputStream(parcelRead_);
         os_ = new ParcelFileDescriptor.AutoCloseOutputStream(parcelWrite_);
 
-        awt_ = new AudioWritingThread(os_, frames);
+        awt_ = new AudioWritingThread(os_);
 
     }
 
-    public void startPlaying(int repeats) {
+    public void writeADTSFrames(byte[] frames) {
+        awt_.writeADTSFrames(frames);
+    }
+
+    public void stop() {
+        awt_.stop();
+    }
+
+    public void start() {
 
         Log.d(TAG,"StreamPlayer started.");
 
@@ -101,7 +110,7 @@ public class StreamPlayer {
 
         player.setPlayWhenReady(true);
 
-        awt_.start(repeats);
+        awt_.start();
 
         Log.d(TAG,"StreamPlayer stopped.");
 
@@ -113,16 +122,14 @@ public class StreamPlayer {
 
         private Thread t_;
         private OutputStream os_;
-        private byte[][] frames_;
-        private int repeats_ = 1;
+        private LinkedTransferQueue<byte[]> inputQueue_;
 
-        AudioWritingThread(OutputStream os, byte[][] frames) {
+        AudioWritingThread(OutputStream os) {
             os_ = os;
-            frames_ = frames;
+            inputQueue_ = new LinkedTransferQueue();
         }
 
-        public void start(int repeats) {
-            repeats_ = repeats;
+        public void start() {
             if (t_ == null) {
                 t_ = new Thread(this);
                 t_.start();
@@ -139,22 +146,20 @@ public class StreamPlayer {
             }
         }
 
+        public void writeADTSFrames(byte[] frames) {
+            inputQueue_.add(frames);
+        }
+
         public void run() {
 
             Log.d(TAG,"AudioWritingThread started.");
 
             try {
-                 for (int j = 0; j < repeats_; j++) {
-                     Log.d(TAG, "Wrote first half of test audio.");
-                     for (int i = 0; i < frames_.length/2; i++) {
-                         os_.write(frames_[i]);
-                     }
-                     //Thread.sleep(10000);
-                     Log.d(TAG, "Wrote second half of test audio.");
-                     for (int i = frames_.length/2; i < frames_.length; i++) {
-                         os_.write(frames_[i]);
-                     }
-                 }
+                while (!Thread.interrupted()) {
+                    if (inputQueue_.size() != 0) {
+                        os_.write(inputQueue_.poll());
+                    }
+                }
             } catch (IOException e) {
                 e.printStackTrace();
             }

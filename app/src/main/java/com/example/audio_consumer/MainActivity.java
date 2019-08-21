@@ -21,8 +21,11 @@ public class MainActivity extends AppCompatActivity {
 
         AudioProcessingHelpers.writeTestAudioToFile(filePath);
 
-        streamPlayer_ = new StreamPlayer(this, TestFrames.MUSIC_ADTS_FRAME_BUFFERS);
-        streamPlayer_.startPlaying(streamRepeats_);
+        streamPlayer_ = new StreamPlayer(this);
+        streamPlayer_.start();
+        for (int i = 0; i < TestFrames.MUSIC_ADTS_FRAME_BUFFERS.length; i++) {
+            streamPlayer_.writeADTSFrames(TestFrames.MUSIC_ADTS_FRAME_BUFFERS[i]);
+        }
 
     }
 

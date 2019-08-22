@@ -16,6 +16,7 @@ import com.google.android.exoplayer2.source.ProgressiveMediaSource;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 
 import net.named_data.jndn.Data;
+import net.named_data.jndn.Interest;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -60,6 +61,11 @@ public class StreamPlayer implements NetworkThread.Observer {
     @Override
     public void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime) {
         awt_.writeADTSFrames(audioPacket.getContent().getImmutableArray());
+    }
+
+    @Override
+    public void onInterestTimeout(Interest interest, long timeoutTime) {
+
     }
 
     public void stop() {

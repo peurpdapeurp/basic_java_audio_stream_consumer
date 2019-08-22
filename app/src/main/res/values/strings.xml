@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">audio_consumer</string>
+    <string name="app_name">NASC</string>
+    <string name="network_prefix">/basic_ndn_audio_streamer</string>
 </resources>

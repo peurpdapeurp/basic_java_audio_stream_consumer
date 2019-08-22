@@ -82,6 +82,11 @@ public class StreamFetchManager implements NetworkThread.Observer {
         rtoTimer.purge();
     }
 
+    @Override
+    public void onInterestTimeout(Interest interest, long timeoutTime) {
+
+    }
+
     private class RttEstimator {
 
         private static final String TAG = "RttEstimator";

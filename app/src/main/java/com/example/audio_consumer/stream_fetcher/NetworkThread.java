@@ -9,6 +9,7 @@ import net.named_data.jndn.Face;
 import net.named_data.jndn.Interest;
 import net.named_data.jndn.Name;
 import net.named_data.jndn.OnData;
+import net.named_data.jndn.OnTimeout;
 import net.named_data.jndn.encoding.EncodingException;
 import net.named_data.jndn.security.KeyChain;
 import net.named_data.jndn.security.SecurityException;
@@ -39,6 +40,8 @@ public class NetworkThread implements Runnable {
          * @param satisfiedTime Absolute time that this data was received, unix timestamp in milliseconds.
          */
         void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime);
+
+        void onInterestTimeout(Interest interest, long timeoutTime);
     }
 
     public NetworkThread(ArrayList<Observer> observers, LinkedTransferQueue interestInputQueue) {
@@ -89,18 +92,28 @@ public class NetworkThread implements Runnable {
                     Log.d(TAG, "Sending interest with name " + interestToSend.getName().toUri() + " at time " + sendTime);
                     interestSendTimes_.put(interestToSend, sendTime);
                     face_.expressInterest(interestToSend, new OnData() {
-                        @Override
-                        public void onData(Interest interest, Data data) {
-                            for (int i = 0; i < observers_.size(); i++) {
-                                long satisfiedTime = Helpers.currentUnixTimeMilliseconds();
-                                long sentTime = interestSendTimes_.get(interest);
-                                Log.d(TAG, "Interest with name " + interest.getName().toUri() + " satisfied at time " + satisfiedTime + "\n" +
-                                                 "RTT for interest: " + (satisfiedTime - sentTime));
-                                observers_.get(i).onAudioPacketReceived(data, sentTime, satisfiedTime);
-                                interestSendTimes_.remove(interest);
-                            }
-                        }
-                    });
+                                @Override
+                                public void onData(Interest interest, Data data) {
+                                    for (int i = 0; i < observers_.size(); i++) {
+                                        long satisfiedTime = Helpers.currentUnixTimeMilliseconds();
+                                        long sentTime = interestSendTimes_.get(interest);
+                                        Log.d(TAG, "Interest with name " + interest.getName().toUri() + " satisfied at time " + satisfiedTime + "\n" +
+                                                         "RTT for interest: " + (satisfiedTime - sentTime));
+                                        observers_.get(i).onAudioPacketReceived(data, sentTime, satisfiedTime);
+                                        interestSendTimes_.remove(interest);
+                                    }
+                                }
+                            },
+                            new OnTimeout() {
+                                @Override
+                                public void onTimeout(Interest interest) {
+                                    for (int i = 0; i < observers_.size(); i++) {
+                                        long timeoutTime = Helpers.currentUnixTimeMilliseconds();
+                                        Log.d(TAG, "Interest with name " + interest.getName().toUri() + " timed out at time " + timeoutTime);
+                                        observers_.get(i).onInterestTimeout(interest, timeoutTime);
+                                    }
+                                }
+                            });
 
                 }
 

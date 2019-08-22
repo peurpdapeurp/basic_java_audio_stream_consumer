@@ -3,7 +3,9 @@ package com.example.audio_consumer.stream_fetcher;
 import android.util.Log;
 
 import com.example.audio_consumer.Constants;
+import com.example.audio_consumer.Helpers;
 
+import net.named_data.jndn.ContentType;
 import net.named_data.jndn.Data;
 import net.named_data.jndn.Interest;
 import net.named_data.jndn.Name;
@@ -19,6 +21,8 @@ public class StreamFetchManager implements NetworkThread.Observer {
 
     private static final String TAG = "StreamFetchManager";
 
+    private final int FINAL_BLOCK_ID_UNKNOWN = -1;
+
     boolean currentlyFetchingStream_ = false;
     Name currentStreamName_;
     PriorityQueue<Long> requestQueue_;
@@ -27,6 +31,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
     LinkedTransferQueue<Interest> interestOutputQueue_;
     RttEstimator rttEstimator_;
     HashMap<Long, Timer> interestTimers_;
+    long currentStreamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
 
     public StreamFetchManager(LinkedTransferQueue interestOutputQueue) {
         requestQueue_ = new PriorityQueue<>();
@@ -43,6 +48,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
         requestQueue_.clear();
         currentStreamName_ = null;
         currentlyFetchingStream_ = false;
+        currentStreamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
     }
 
     /**
@@ -84,6 +90,24 @@ public class StreamFetchManager implements NetworkThread.Observer {
         Timer rtoTimer = interestTimers_.get(segmentNumber);
         rtoTimer.cancel();
         rtoTimer.purge();
+
+        if (audioPacket.getMetaInfo().getType() == ContentType.NACK) {
+            long finalBlockId = Helpers.bytesToLong(audioPacket.getContent().getImmutableArray());
+            Log.d(TAG, "Final block id found in application nack: " + finalBlockId);
+            currentStreamFinalBlockId_ = finalBlockId;
+        }
+        else {
+            Name.Component finalBlockIdComponent = audioPacket.getMetaInfo().getFinalBlockId();
+            if (finalBlockIdComponent != null) {
+                try {
+                    long finalBlockId = finalBlockIdComponent.toSegment();
+                    Log.d(TAG, "Got a packet with final block id of " + finalBlockId);
+                    currentStreamFinalBlockId_ = finalBlockId;
+                } catch (EncodingException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
     @Override
@@ -196,11 +220,14 @@ public class StreamFetchManager implements NetworkThread.Observer {
                     long rto = (long) rttEstimator_.getEstimatedRto();
                     Log.d(TAG, "Sending interest with rto: " + rto);
                     interestToSend.setInterestLifetimeMilliseconds(rto);
+                    interestToSend.setCanBePrefix(false);
+                    interestToSend.setMustBeFresh(false);
                     Timer rtoTimer = new Timer();
                     rtoTimer.schedule(new TimerTask() {
                         @Override
                         public void run() {
                             Log.d(TAG, "Rto timer for segment number " + currentSegNum + " timed out.");
+                            requestQueue_.add(currentSegNum);
                         }
                     }, rto);
                     interestTimers_.put(currentSegNum, rtoTimer);
@@ -212,7 +239,5 @@ public class StreamFetchManager implements NetworkThread.Observer {
 
         }
     }
-
-
 
 }

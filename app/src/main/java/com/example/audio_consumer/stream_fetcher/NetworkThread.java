@@ -2,6 +2,8 @@ package com.example.audio_consumer.stream_fetcher;
 
 import android.util.Log;
 
+import com.example.audio_consumer.Helpers;
+
 import net.named_data.jndn.Data;
 import net.named_data.jndn.Face;
 import net.named_data.jndn.Interest;
@@ -17,6 +19,7 @@ import net.named_data.jndn.security.policy.SelfVerifyPolicyManager;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.concurrent.LinkedTransferQueue;
 
 public class NetworkThread implements Runnable {
@@ -27,15 +30,21 @@ public class NetworkThread implements Runnable {
     private Face face_;
     private KeyChain keyChain_;
     private ArrayList<Observer> observers_;
-    private LinkedTransferQueue<Interest> inputQueue_;
+    private LinkedTransferQueue<Interest> interestInputQueue_;
+    private HashMap<Interest, Long> interestSendTimes_;
 
     public interface Observer {
-        void onAudioPacketReceived(Data audioPacket);
+        /**
+         * @param sentTime Absolute time that interest for this data was sent, unix timestamp in milliseconds.
+         * @param satisfiedTime Absolute time that this data was received, unix timestamp in milliseconds.
+         */
+        void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime);
     }
 
-    public NetworkThread(ArrayList<Observer> observers) {
+    public NetworkThread(ArrayList<Observer> observers, LinkedTransferQueue interestInputQueue) {
         observers_ = observers;
-        inputQueue_ = new LinkedTransferQueue<>();
+        interestInputQueue_ = interestInputQueue;
+        interestSendTimes_ = new HashMap<>();
     }
 
     public void start() {
@@ -73,15 +82,26 @@ public class NetworkThread implements Runnable {
 
             while (!Thread.interrupted()) {
 
-                if (inputQueue_.size() != 0) {
-                    face_.expressInterest(inputQueue_.poll(), new OnData() {
+                if (interestInputQueue_.size() != 0) {
+                    Interest interestToSend = interestInputQueue_.poll();
+                    if (interestToSend == null) continue;
+                    long sendTime = Helpers.currentUnixTimeMilliseconds();
+                    Log.d(TAG, "Sending interest with name " + interestToSend.getName().toUri() + " at time " + sendTime);
+                    interestSendTimes_.put(interestToSend, sendTime);
+                    face_.expressInterest(interestToSend, new OnData() {
                         @Override
                         public void onData(Interest interest, Data data) {
                             for (int i = 0; i < observers_.size(); i++) {
-                                observers_.get(i).onAudioPacketReceived(data);
+                                long satisfiedTime = Helpers.currentUnixTimeMilliseconds();
+                                long sentTime = interestSendTimes_.get(interest);
+                                Log.d(TAG, "Interest with name " + interest.getName().toUri() + " satisfied at time " + satisfiedTime + "\n" +
+                                                 "RTT for interest: " + (satisfiedTime - sentTime));
+                                observers_.get(i).onAudioPacketReceived(data, sentTime, satisfiedTime);
+                                interestSendTimes_.remove(interest);
                             }
                         }
                     });
+
                 }
 
                 face_.processEvents();

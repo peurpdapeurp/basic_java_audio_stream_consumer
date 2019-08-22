@@ -58,7 +58,7 @@ public class StreamPlayer implements NetworkThread.Observer {
     }
 
     @Override
-    public void onAudioPacketReceived(Data audioPacket) {
+    public void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime) {
         awt_.writeADTSFrames(audioPacket.getContent().getImmutableArray());
     }
 
@@ -161,7 +161,9 @@ public class StreamPlayer implements NetworkThread.Observer {
             try {
                 while (!Thread.interrupted()) {
                     if (inputQueue_.size() != 0) {
-                        os_.write(inputQueue_.poll());
+                        byte[] currentFrames = inputQueue_.poll();
+                        if (currentFrames == null) continue;
+                        os_.write(currentFrames);
                     }
                 }
             } catch (IOException e) {

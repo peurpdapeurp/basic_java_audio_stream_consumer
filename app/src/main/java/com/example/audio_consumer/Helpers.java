@@ -12,6 +12,10 @@ import java.util.Arrays;
 
 public class Helpers {
 
+    public static long currentUnixTimeMilliseconds() {
+        return System.currentTimeMillis();
+    }
+
     private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
     public static String bytesToHex(byte[] bytes) {
         char[] hexChars = new char[bytes.length * 2];

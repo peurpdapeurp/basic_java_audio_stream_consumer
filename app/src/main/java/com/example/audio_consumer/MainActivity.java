@@ -101,7 +101,8 @@ public class MainActivity extends AppCompatActivity implements NetworkThread.Obs
     }
 
     @Override
-    public void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime) {
+    public void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime,
+                                      int outstandingInterests) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {

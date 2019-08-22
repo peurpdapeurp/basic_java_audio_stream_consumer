@@ -42,7 +42,6 @@ public class StreamFetchManager implements NetworkThread.Observer {
         requestSender_.stop();
         requestQueue_.clear();
         currentStreamName_ = null;
-        rttEstimator_.clear();
         currentlyFetchingStream_ = false;
     }
 
@@ -70,11 +69,13 @@ public class StreamFetchManager implements NetworkThread.Observer {
     }
 
     @Override
-    public void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime) {
-        rttEstimator_.addNewRtt(satisfiedTime - sentTime);
+    public void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime,
+                                      int outstandingInterests) {
+        Log.d(TAG, "Got audio packet with name: " + audioPacket.getName());
+        rttEstimator_.addMeasurement(satisfiedTime-sentTime, outstandingInterests);
         long segmentNumber;
         try {
-            segmentNumber = audioPacket.getName().get(-1).toSequenceNumber();
+            segmentNumber = audioPacket.getName().get(-1).toSegment();
         } catch (EncodingException e) {
             e.printStackTrace();
             return;
@@ -87,42 +88,6 @@ public class StreamFetchManager implements NetworkThread.Observer {
 
     @Override
     public void onInterestTimeout(Interest interest, long timeoutTime) {
-
-    }
-
-    private class RttEstimator {
-
-        private static final String TAG = "RttEstimator";
-
-        // see https://tools.ietf.org/html/rfc793, "An Example Retransmission Timeout Procedure"
-        public static final long INITIAL_RTT_ESTIMATE = 2000;
-        public static final double ALPHA = .8;
-        public static final long UBOUND = 60000; // max rto in milliseconds
-        public static final long LBOUND = 500; // min rto in milliseconds
-        public static final double BETA = 1.3;
-
-        double currentRttEstimate_; // current RTT estimate in milliseconds
-
-        public RttEstimator() {
-            currentRttEstimate_ = INITIAL_RTT_ESTIMATE;
-        }
-
-        // see https://tools.ietf.org/html/rfc793, "An Example Retransmission Timeout Procedure"
-        public void addNewRtt(long newRtt) {
-            Log.d(TAG, "Calculating new rtt estimate as : " + "(" + ALPHA + " * " + currentRttEstimate_ + ")" + " + " + "(" + (1-ALPHA) + " * " + newRtt + ")");
-            currentRttEstimate_ = (ALPHA * currentRttEstimate_) + ((1 - ALPHA) * newRtt);
-            Log.d(TAG, "Calculated new rtt estimate: " + currentRttEstimate_);
-        }
-
-        // see https://tools.ietf.org/html/rfc793, "An Example Retransmission Timeout Procedure"
-        public long getRto() {
-            Log.d(TAG, "Calculating rto as: " + "Math.min(" + UBOUND + ", " + "Math.max(" + LBOUND + ", " + "(" + BETA + " * " + currentRttEstimate_ + "))");
-            return Math.min(UBOUND,Math.max(LBOUND, (long) (BETA * currentRttEstimate_)));
-        }
-
-        public void clear() {
-            currentRttEstimate_ = INITIAL_RTT_ESTIMATE;
-        }
 
     }
 
@@ -228,7 +193,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
                     Log.d(TAG, "Detected segment number " + currentSegNum + " in request queue.");
                     Interest interestToSend = new Interest(currentStreamName_);
                     interestToSend.getName().appendSegment(currentSegNum);
-                    long rto = rttEstimator_.getRto();
+                    long rto = (long) rttEstimator_.getEstimatedRto();
                     Log.d(TAG, "Sending interest with rto: " + rto);
                     interestToSend.setInterestLifetimeMilliseconds(rto);
                     Timer rtoTimer = new Timer();

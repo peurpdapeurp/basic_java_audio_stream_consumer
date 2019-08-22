@@ -38,8 +38,9 @@ public class NetworkThread implements Runnable {
         /**
          * @param sentTime Absolute time that interest for this data was sent, unix timestamp in milliseconds.
          * @param satisfiedTime Absolute time that this data was received, unix timestamp in milliseconds.
+         * @param outstandingInterests Current number of outstanding interests; used for rtt estimation.
          */
-        void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime);
+        void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime, int outstandingInterests);
 
         void onInterestTimeout(Interest interest, long timeoutTime);
     }
@@ -102,9 +103,10 @@ public class NetworkThread implements Runnable {
                                     }
                                     Log.d(TAG, "Interest with name " + interest.getName().toUri() + " satisfied at time " + satisfiedTime + "\n" +
                                             "RTT for interest: " + (satisfiedTime - sentTime));
+                                    Log.d(TAG, "Number of outstanding interests (interestSendTimes.size()): " + interestSendTimes_.size());
 
                                     for (int i = 0; i < observers_.size(); i++) {
-                                        observers_.get(i).onAudioPacketReceived(data, sentTime, satisfiedTime);
+                                        observers_.get(i).onAudioPacketReceived(data, sentTime, satisfiedTime, interestSendTimes_.size());
                                         interestSendTimes_.remove(interest);
                                     }
                                 }

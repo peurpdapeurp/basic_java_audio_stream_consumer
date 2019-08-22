@@ -33,19 +33,38 @@
             android:inputType="textPersonName"
             android:text="default_stream_name" />
 
-        <TextView
-            android:id="@+id/stream_id_input_label"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Stream id:" />
+            android:orientation="horizontal">
 
-        <EditText
-            android:id="@+id/stream_id_input"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ems="10"
-            android:inputType="textPersonName"
-            android:text="0" />
+            <LinearLayout
+                android:layout_width="274dp"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/stream_id_input_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Stream id:" />
+
+                <EditText
+                    android:id="@+id/stream_id_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ems="10"
+                    android:inputType="textPersonName"
+                    android:text="0" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/clear_log_button"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:text="Clear Log" />
+        </LinearLayout>
 
         <ScrollView
             android:layout_width="match_parent"

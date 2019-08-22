@@ -27,6 +27,7 @@ public class MainActivity extends AppCompatActivity implements NetworkThread.Obs
 
     Button startFetchingButton_;
     Button stopFetchingButton_;
+    Button clearLogButton_;
     TextView uiLog_;
     EditText streamNameInput_;
     EditText streamIdInput_;
@@ -86,6 +87,14 @@ public class MainActivity extends AppCompatActivity implements NetworkThread.Obs
             @Override
             public void onClick(View view) {
                 streamFetchManager_.stop();
+            }
+        });
+
+        clearLogButton_ = (Button) findViewById(R.id.clear_log_button);
+        clearLogButton_.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                uiLog_.setText("");
             }
         });
 

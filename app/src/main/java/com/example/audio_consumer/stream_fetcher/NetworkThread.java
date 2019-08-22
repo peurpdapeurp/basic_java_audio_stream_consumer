@@ -94,11 +94,16 @@ public class NetworkThread implements Runnable {
                     face_.expressInterest(interestToSend, new OnData() {
                                 @Override
                                 public void onData(Interest interest, Data data) {
+                                    long satisfiedTime = Helpers.currentUnixTimeMilliseconds();
+                                    Long sentTime = interestSendTimes_.get(interest);
+                                    if (sentTime == null) {
+                                        Log.e(TAG, "Unable to get time that " + interest.getName().toUri() + " was sent.");
+                                        return;
+                                    }
+                                    Log.d(TAG, "Interest with name " + interest.getName().toUri() + " satisfied at time " + satisfiedTime + "\n" +
+                                            "RTT for interest: " + (satisfiedTime - sentTime));
+
                                     for (int i = 0; i < observers_.size(); i++) {
-                                        long satisfiedTime = Helpers.currentUnixTimeMilliseconds();
-                                        long sentTime = interestSendTimes_.get(interest);
-                                        Log.d(TAG, "Interest with name " + interest.getName().toUri() + " satisfied at time " + satisfiedTime + "\n" +
-                                                         "RTT for interest: " + (satisfiedTime - sentTime));
                                         observers_.get(i).onAudioPacketReceived(data, sentTime, satisfiedTime);
                                         interestSendTimes_.remove(interest);
                                     }
@@ -107,9 +112,10 @@ public class NetworkThread implements Runnable {
                             new OnTimeout() {
                                 @Override
                                 public void onTimeout(Interest interest) {
+                                    long timeoutTime = Helpers.currentUnixTimeMilliseconds();
+                                    Log.d(TAG, "Interest with name " + interest.getName().toUri() + " timed out at time " + timeoutTime);
+
                                     for (int i = 0; i < observers_.size(); i++) {
-                                        long timeoutTime = Helpers.currentUnixTimeMilliseconds();
-                                        Log.d(TAG, "Interest with name " + interest.getName().toUri() + " timed out at time " + timeoutTime);
                                         observers_.get(i).onInterestTimeout(interest, timeoutTime);
                                     }
                                 }

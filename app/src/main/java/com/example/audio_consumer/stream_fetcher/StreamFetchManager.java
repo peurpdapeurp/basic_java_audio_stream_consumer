@@ -41,6 +41,9 @@ public class StreamFetchManager implements NetworkThread.Observer {
         segNumGenerator_.stop();
         requestSender_.stop();
         requestQueue_.clear();
+        currentStreamName_ = null;
+        rttEstimator_.clear();
+        currentlyFetchingStream_ = false;
     }
 
     /**
@@ -115,6 +118,10 @@ public class StreamFetchManager implements NetworkThread.Observer {
         public long getRto() {
             Log.d(TAG, "Calculating rto as: " + "Math.min(" + UBOUND + ", " + "Math.max(" + LBOUND + ", " + "(" + BETA + " * " + currentRttEstimate_ + "))");
             return Math.min(UBOUND,Math.max(LBOUND, (long) (BETA * currentRttEstimate_)));
+        }
+
+        public void clear() {
+            currentRttEstimate_ = INITIAL_RTT_ESTIMATE;
         }
 
     }

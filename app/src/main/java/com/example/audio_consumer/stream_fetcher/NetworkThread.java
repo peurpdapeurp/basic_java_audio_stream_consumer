@@ -20,7 +20,9 @@ import net.named_data.jndn.security.policy.SelfVerifyPolicyManager;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.LinkedTransferQueue;
 
 public class NetworkThread implements Runnable {
@@ -30,7 +32,7 @@ public class NetworkThread implements Runnable {
     private Thread t_;
     private Face face_;
     private KeyChain keyChain_;
-    private ArrayList<Observer> observers_;
+    private List<Observer> observers_;
     private LinkedTransferQueue<Interest> interestInputQueue_;
     private HashMap<Interest, Long> interestSendTimes_;
 
@@ -45,10 +47,19 @@ public class NetworkThread implements Runnable {
         void onInterestTimeout(Interest interest, long timeoutTime);
     }
 
-    public NetworkThread(ArrayList<Observer> observers, LinkedTransferQueue interestInputQueue) {
-        observers_ = observers;
+    public NetworkThread(LinkedTransferQueue interestInputQueue) {
+        ArrayList<Observer> observersList = new ArrayList<>();
+        observers_ = Collections.synchronizedList(observersList);
         interestInputQueue_ = interestInputQueue;
         interestSendTimes_ = new HashMap<>();
+    }
+
+    public void addObserver(Observer o) {
+        observers_.add(o);
+    }
+
+    public void removeObserver(Observer o) {
+        observers_.remove(o);
     }
 
     public void start() {
@@ -126,6 +137,13 @@ public class NetworkThread implements Runnable {
                 }
 
                 face_.processEvents();
+
+                try {
+                    Thread.sleep(100); // add a small sleep time to save battery
+                }
+                catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
             }
 
         } catch (ArrayIndexOutOfBoundsException e) {

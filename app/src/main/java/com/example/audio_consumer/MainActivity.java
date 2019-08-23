@@ -11,14 +11,13 @@ import android.widget.EditText;
 import android.widget.TextView;
 
 import com.example.audio_consumer.stream_fetcher.NetworkThread;
-import com.example.audio_consumer.stream_fetcher.StreamFetchManager;
+import com.example.audio_consumer.stream_fetcher.StreamFetcher;
 import com.example.audio_consumer.stream_fetcher.StreamPlayer;
 
 import net.named_data.jndn.Data;
 import net.named_data.jndn.Interest;
 import net.named_data.jndn.Name;
 
-import java.util.ArrayList;
 import java.util.concurrent.LinkedTransferQueue;
 
 public class MainActivity extends AppCompatActivity implements NetworkThread.Observer {
@@ -32,8 +31,8 @@ public class MainActivity extends AppCompatActivity implements NetworkThread.Obs
     EditText streamNameInput_;
     EditText streamIdInput_;
 
+    StreamFetcher currentStreamFetcher_;
     StreamPlayer streamPlayer_;
-    StreamFetchManager streamFetchManager_;
     NetworkThread networkThread_;
 
     @Override
@@ -47,13 +46,10 @@ public class MainActivity extends AppCompatActivity implements NetworkThread.Obs
 
         LinkedTransferQueue<Interest> interestTransferQueue = new LinkedTransferQueue<>();
 
-        streamFetchManager_ = new StreamFetchManager(interestTransferQueue);
         streamPlayer_ = new StreamPlayer(this);
-        ArrayList<NetworkThread.Observer> networkThreadObservers = new ArrayList<NetworkThread.Observer>();
-        networkThreadObservers.add(streamFetchManager_);
-        networkThreadObservers.add(streamPlayer_);
-        networkThreadObservers.add(this);
-        networkThread_ = new NetworkThread(networkThreadObservers, interestTransferQueue);
+        networkThread_ = new NetworkThread(interestTransferQueue);
+        networkThread_.addObserver(streamPlayer_);
+        networkThread_.addObserver(this);
 
         networkThread_.start();
         streamPlayer_.start();
@@ -62,11 +58,13 @@ public class MainActivity extends AppCompatActivity implements NetworkThread.Obs
         startFetchingButton_.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+                currentStreamFetcher_ = new StreamFetcher(interestTransferQueue);
+                networkThread_.addObserver(currentStreamFetcher_);
                 Name streamName = new Name(getString(R.string.network_prefix))
                         .append(streamNameInput_.getText().toString())
                         .append(streamIdInput_.getText().toString())
                         .appendVersion(0);
-                boolean ret = streamFetchManager_.startFetchingStream(
+                boolean ret = currentStreamFetcher_.startFetchingStream(
                         streamName, 8000, 10);
                 Log.d(TAG, (ret ? "Successfully began fetching stream" : "Failed to start fetching stream") +
                             " with name: " + streamName.toUri());
@@ -86,7 +84,9 @@ public class MainActivity extends AppCompatActivity implements NetworkThread.Obs
         stopFetchingButton_.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                streamFetchManager_.stop();
+                currentStreamFetcher_.close();
+                networkThread_.removeObserver(currentStreamFetcher_);
+                currentStreamFetcher_ = null;
             }
         });
 

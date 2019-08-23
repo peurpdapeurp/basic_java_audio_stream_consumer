@@ -18,9 +18,9 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.LinkedTransferQueue;
 
-public class StreamFetchManager implements NetworkThread.Observer {
+public class StreamFetcher implements NetworkThread.Observer {
 
-    private static final String TAG = "StreamFetchManager";
+    private static final String TAG = "StreamFetcher";
 
     private final int FINAL_BLOCK_ID_UNKNOWN = -1;
 
@@ -35,7 +35,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
     HashSet<Long> retransmittedSegNums_;
     long currentStreamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
 
-    public StreamFetchManager(LinkedTransferQueue interestOutputQueue) {
+    public StreamFetcher(LinkedTransferQueue interestOutputQueue) {
         requestQueue_ = new PriorityQueue<>();
         segNumGenerator_ = new SegNumGenerator();
         requestSender_ = new RequestSender();
@@ -45,7 +45,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
         retransmittedSegNums_ = new HashSet<>();
     }
 
-    public void stop() {
+    public void close() {
         segNumGenerator_.stop();
         requestSender_.stop();
         requestQueue_.clear();
@@ -53,6 +53,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
         currentlyFetchingStream_ = false;
         retransmittedSegNums_.clear();
         currentStreamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
+        Log.d(TAG, "Close called.");
     }
 
     /**
@@ -81,14 +82,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
     @Override
     public void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime,
                                       int outstandingInterests) {
-
         Log.d(TAG, "Got audio packet with name: " + audioPacket.getName());
-        if (!audioPacket.getName().getPrefix(-1).equals(currentStreamName_)) {
-            Log.d(TAG, "Got an audio packet with mismatching stream name." + "\n" +
-                    "Stream name of audio packet: " + audioPacket.getName().getPrefix(-1).toUri() + "\n" +
-                    "Stream name currently being fetched: " + currentStreamName_.toUri());
-            return;
-        }
         long segmentNumber;
         try {
             segmentNumber = audioPacket.getName().get(-1).toSegment();
@@ -242,7 +236,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
                                         currentStreamFinalBlockId_ + "), not sending an interest for it.");
                         // if we detect a segment number from the request queue greater than the final block id,
                         // it means that the segment number generator has already generated enough segment numbers
-                        // to fetch this stream, so stop it
+                        // to fetch this stream, so close it
                         segNumGenerator_.stop();
                         continue;
                     }

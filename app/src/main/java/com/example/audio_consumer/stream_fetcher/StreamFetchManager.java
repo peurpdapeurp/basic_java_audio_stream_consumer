@@ -12,6 +12,7 @@ import net.named_data.jndn.Name;
 import net.named_data.jndn.encoding.EncodingException;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.PriorityQueue;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -31,6 +32,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
     LinkedTransferQueue<Interest> interestOutputQueue_;
     RttEstimator rttEstimator_;
     HashMap<Long, Timer> interestTimers_;
+    HashSet<Long> retransmittedSegNums_;
     long currentStreamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
 
     public StreamFetchManager(LinkedTransferQueue interestOutputQueue) {
@@ -40,6 +42,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
         interestOutputQueue_ = interestOutputQueue;
         rttEstimator_ = new RttEstimator();
         interestTimers_ = new HashMap<>();
+        retransmittedSegNums_ = new HashSet<>();
     }
 
     public void stop() {
@@ -48,6 +51,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
         requestQueue_.clear();
         currentStreamName_ = null;
         currentlyFetchingStream_ = false;
+        retransmittedSegNums_.clear();
         currentStreamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
     }
 
@@ -77,8 +81,14 @@ public class StreamFetchManager implements NetworkThread.Observer {
     @Override
     public void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime,
                                       int outstandingInterests) {
+
         Log.d(TAG, "Got audio packet with name: " + audioPacket.getName());
-        rttEstimator_.addMeasurement(satisfiedTime-sentTime, outstandingInterests);
+        if (!audioPacket.getName().getPrefix(-1).equals(currentStreamName_)) {
+            Log.d(TAG, "Got an audio packet with mismatching stream name." + "\n" +
+                    "Stream name of audio packet: " + audioPacket.getName().getPrefix(-1).toUri() + "\n" +
+                    "Stream name currently being fetched: " + currentStreamName_.toUri());
+            return;
+        }
         long segmentNumber;
         try {
             segmentNumber = audioPacket.getName().get(-1).toSegment();
@@ -87,6 +97,17 @@ public class StreamFetchManager implements NetworkThread.Observer {
             return;
         }
         Log.d(TAG, "Got packet with segment number " + segmentNumber);
+
+        if (retransmittedSegNums_.contains(segmentNumber)) {
+            Log.d(TAG, "Segment number " + segmentNumber + " was retransmitted, not using it for RTT estimation.");
+        } else {
+            Log.d(TAG, "Segment number " + segmentNumber + " was not retransmitted." + " \n" +
+                            "Adding measurement to rtt estimator: " + "\n" +
+                            "RTT: " + (satisfiedTime - sentTime) + "\n" +
+                            "Number of outstanding interests: " + outstandingInterests);
+            rttEstimator_.addMeasurement(satisfiedTime - sentTime, outstandingInterests);
+        }
+
         Timer rtoTimer = interestTimers_.get(segmentNumber);
         rtoTimer.cancel();
         rtoTimer.purge();
@@ -103,7 +124,8 @@ public class StreamFetchManager implements NetworkThread.Observer {
                     long finalBlockId = finalBlockIdComponent.toSegment();
                     Log.d(TAG, "Got a packet with final block id of " + finalBlockId);
                     currentStreamFinalBlockId_ = finalBlockId;
-                } catch (EncodingException e) {
+                }
+                catch (EncodingException e) {
                     e.printStackTrace();
                 }
             }
@@ -215,6 +237,15 @@ public class StreamFetchManager implements NetworkThread.Observer {
                     Long currentSegNum = requestQueue_.poll();
                     if (currentSegNum == null) continue;
                     Log.d(TAG, "Detected segment number " + currentSegNum + " in request queue.");
+                    if (currentStreamFinalBlockId_ != FINAL_BLOCK_ID_UNKNOWN && currentSegNum > currentStreamFinalBlockId_) {
+                        Log.d(TAG, "Segment number " + currentSegNum + " was past final block id for this stream (" +
+                                        currentStreamFinalBlockId_ + "), not sending an interest for it.");
+                        // if we detect a segment number from the request queue greater than the final block id,
+                        // it means that the segment number generator has already generated enough segment numbers
+                        // to fetch this stream, so stop it
+                        segNumGenerator_.stop();
+                        continue;
+                    }
                     Interest interestToSend = new Interest(currentStreamName_);
                     interestToSend.getName().appendSegment(currentSegNum);
                     long rto = (long) rttEstimator_.getEstimatedRto();
@@ -228,6 +259,7 @@ public class StreamFetchManager implements NetworkThread.Observer {
                         public void run() {
                             Log.d(TAG, "Rto timer for segment number " + currentSegNum + " timed out.");
                             requestQueue_.add(currentSegNum);
+                            retransmittedSegNums_.add(currentSegNum);
                         }
                     }, rto);
                     interestTimers_.put(currentSegNum, rtoTimer);

@@ -1,7 +1,6 @@
 package com.example.audio_consumer.stream_fetcher.exoplayer_customization;
 
 import android.net.Uri;
-import android.util.Log;
 
 import androidx.annotation.Nullable;
 

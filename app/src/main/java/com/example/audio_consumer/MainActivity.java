@@ -31,6 +31,7 @@ public class MainActivity extends AppCompatActivity {
     TextView uiLog_;
     EditText streamNameInput_;
     EditText streamIdInput_;
+    EditText audioBundleSizeInput_;
 
     StreamFetcher currentStreamFetcher_;
     Name currentStreamName_;
@@ -45,6 +46,7 @@ public class MainActivity extends AppCompatActivity {
         uiLog_ = (TextView) findViewById(R.id.ui_log);
         streamNameInput_ = (EditText) findViewById(R.id.stream_name_input);
         streamIdInput_ = (EditText) findViewById(R.id.stream_id_input);
+        audioBundleSizeInput_ = (EditText) findViewById(R.id.audio_bundle_size_input);
 
         streamPlayer_ = new StreamPlayer(this);
         streamPlayer_.start();
@@ -63,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
                         .append(streamIdInput_.getText().toString())
                         .appendVersion(0);
                 currentStreamFetcher_ = new StreamFetcher(currentStreamName_,
-                        Helpers.calculateMsPerSeg(8000, 10),
+                        Helpers.calculateMsPerSeg(8000, Long.parseLong(audioBundleSizeInput_.getText().toString())),
                         networkThread_.getHandler());
                 currentStreamFetcher_.start();
                 while (currentStreamFetcher_.getHandler() == null) {} // block until stream fetcher's handler is initialized

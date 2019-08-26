@@ -1,15 +1,20 @@
 package com.example.audio_consumer.stream_fetcher;
 
+import android.annotation.SuppressLint;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Message;
+import android.os.SystemClock;
 import android.util.Log;
 
-import com.example.audio_consumer.Helpers;
+import androidx.annotation.NonNull;
 
+import net.named_data.jndn.ContentType;
 import net.named_data.jndn.Data;
 import net.named_data.jndn.Face;
 import net.named_data.jndn.Interest;
 import net.named_data.jndn.Name;
 import net.named_data.jndn.OnData;
-import net.named_data.jndn.OnTimeout;
 import net.named_data.jndn.encoding.EncodingException;
 import net.named_data.jndn.security.KeyChain;
 import net.named_data.jndn.security.SecurityException;
@@ -19,147 +24,140 @@ import net.named_data.jndn.security.identity.MemoryPrivateKeyStorage;
 import net.named_data.jndn.security.policy.SelfVerifyPolicyManager;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.concurrent.LinkedTransferQueue;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class NetworkThread implements Runnable {
+public class NetworkThread extends HandlerThread {
 
     private final static String TAG = "NetworkThread";
 
-    private Thread t_;
     private Face face_;
     private KeyChain keyChain_;
-    private List<Observer> observers_;
-    private LinkedTransferQueue<Interest> interestInputQueue_;
-    private HashMap<Interest, Long> interestSendTimes_;
 
-    public interface Observer {
-        /**
-         * @param sentTime Absolute time that interest for this data was sent, unix timestamp in milliseconds.
-         * @param satisfiedTime Absolute time that this data was received, unix timestamp in milliseconds.
-         * @param outstandingInterests Current number of outstanding interests; used for rtt estimation.
-         */
-        void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime, int outstandingInterests);
+    private long startTime_;
+    private ConcurrentHashMap<Name, Handler> streamFetcherHandlers_;
+    private Handler streamPlayerHandler_;
+    private Handler handler_;
+    private boolean closed_ = false;
 
-        void onInterestTimeout(Interest interest, long timeoutTime);
+    // Private constants
+    private static final int PROCESSING_INTERVAL_MS = 100;
+
+    // Messages
+    private static final int MSG_DO_SOME_WORK = 0;
+    public static final int MSG_INTEREST_SEND_REQUEST = 1;
+
+    private long getTimeSinceNetworkThreadStart() {
+        return System.currentTimeMillis() - startTime_;
     }
 
-    public NetworkThread(LinkedTransferQueue interestInputQueue) {
-        ArrayList<Observer> observersList = new ArrayList<>();
-        observers_ = Collections.synchronizedList(observersList);
-        interestInputQueue_ = interestInputQueue;
-        interestSendTimes_ = new HashMap<>();
+    public void addStreamFetcherHandler(Name streamName, Handler handler) {
+        streamFetcherHandlers_.put(streamName, handler);
     }
 
-    public void addObserver(Observer o) {
-        observers_.add(o);
+    public void removeStreamFetcherHandler(Name streamName) {
+        streamFetcherHandlers_.remove(streamName);
     }
 
-    public void removeObserver(Observer o) {
-        observers_.remove(o);
+    public NetworkThread(Handler streamPlayerHandler) {
+        super("NetworkThread");
+        streamPlayerHandler_ = streamPlayerHandler;
+        streamFetcherHandlers_ = new ConcurrentHashMap<>();
     }
 
-    public void start() {
-        if (t_ == null) {
-            t_ = new Thread(this);
-            t_.start();
-        }
-    }
-
-    public void stop() {
-        if (t_ != null) {
-            t_.interrupt();
-            try {
-                t_.join();
-            } catch (InterruptedException e) {}
-            t_ = null;
-        }
-    }
-
-    public void run() {
-
-        Log.d(TAG,"Started.");
-
+    private void doSomeWork() {
+        if (closed_) return;
         try {
-            // set up keychain
-            keyChain_ = configureKeyChain();
-
-            // set up face
-            face_ = new Face();
-            try {
-                face_.setCommandSigningInfo(keyChain_, keyChain_.getDefaultCertificateName());
-            } catch (SecurityException e) {
-                e.printStackTrace();
-            }
-
-            while (!Thread.interrupted()) {
-
-                if (interestInputQueue_.size() != 0) {
-                    Interest interestToSend = interestInputQueue_.poll();
-                    if (interestToSend == null) continue;
-                    long sendTime = Helpers.currentUnixTimeMilliseconds();
-                    Log.d(TAG, "Sending interest with name " + interestToSend.getName().toUri() + " at time " + sendTime);
-                    interestSendTimes_.put(interestToSend, sendTime);
-                    face_.expressInterest(interestToSend, new OnData() {
-                                @Override
-                                public void onData(Interest interest, Data data) {
-                                    long satisfiedTime = Helpers.currentUnixTimeMilliseconds();
-                                    Long sentTime = interestSendTimes_.get(interest);
-                                    if (sentTime == null) {
-                                        Log.e(TAG, "Unable to get time that " + interest.getName().toUri() + " was sent.");
-                                        return;
-                                    }
-                                    Log.d(TAG, "Interest with name " + interest.getName().toUri() + " satisfied at time " + satisfiedTime + "\n" +
-                                            "RTT for interest: " + (satisfiedTime - sentTime));
-                                    Log.d(TAG, "Number of outstanding interests (interestSendTimes.size()): " + interestSendTimes_.size());
-
-                                    for (int i = 0; i < observers_.size(); i++) {
-                                        observers_.get(i).onAudioPacketReceived(data, sentTime, satisfiedTime, interestSendTimes_.size());
-                                        interestSendTimes_.remove(interest);
-                                    }
-                                }
-                            },
-                            new OnTimeout() {
-                                @Override
-                                public void onTimeout(Interest interest) {
-                                    long timeoutTime = Helpers.currentUnixTimeMilliseconds();
-                                    Log.d(TAG, "Interest with name " + interest.getName().toUri() + " timed out at time " + timeoutTime);
-
-                                    for (int i = 0; i < observers_.size(); i++) {
-                                        observers_.get(i).onInterestTimeout(interest, timeoutTime);
-                                    }
-                                }
-                            });
-
-                }
-
-                face_.processEvents();
-
-                try {
-                    Thread.sleep(100); // add a small sleep time to save battery
-                }
-                catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-
-        } catch (ArrayIndexOutOfBoundsException e) {
-            e.printStackTrace();
+            face_.processEvents();
         } catch (IOException e) {
             e.printStackTrace();
         } catch (EncodingException e) {
             e.printStackTrace();
         }
 
-        Log.d(TAG,"Stopped.");
+        scheduleNextWork(SystemClock.uptimeMillis(), PROCESSING_INTERVAL_MS);
+    }
 
+    private void scheduleNextWork(long thisOperationStartTimeMs, long intervalMs) {
+        handler_.removeMessages(MSG_DO_SOME_WORK);
+        handler_.sendEmptyMessageAtTime(MSG_DO_SOME_WORK, thisOperationStartTimeMs + intervalMs);
+    }
+
+    private void sendInterest(Interest interest) {
+        Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " + "send interest (name " + interest.getName().toString() + ")");
+        try {
+            face_.expressInterest(interest, new OnData() {
+                @Override
+                public void onData(Interest interest, Data data) {
+                    long satisfiedTime = System.currentTimeMillis();
+                    Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " + "data received (" +
+                            "name " + data.getName().toString() + ", " +
+                            "time " + satisfiedTime + ")");
+
+                    Handler streamFetcherHandler = streamFetcherHandlers_.get(data.getName().getPrefix(-1));
+                    if (streamFetcherHandler == null) {
+                        Log.w(TAG, getTimeSinceNetworkThreadStart() + ": " +
+                                "unable to find stream fetcher handler for stream name " + data.getName().getPrefix(-1));
+                        return;
+                    }
+                    streamFetcherHandler.obtainMessage(StreamFetcher.MSG_DATA_RECEIVED,
+                            new StreamFetcher.DataInfo(data, satisfiedTime)).sendToTarget();
+                    if (data.getMetaInfo().getType() != ContentType.NACK) {
+                        streamPlayerHandler_.obtainMessage(StreamPlayer.AWT_MSG_ADTS_FRAMES_RECEIVED,
+                                data.getContent().getImmutableArray()).sendToTarget();
+                    }
+                }
+            });
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void close() {
+        Log.d(TAG, getTimeSinceNetworkThreadStart() + ": " + "close called");
+        handler_.removeCallbacksAndMessages(null);
+        handler_.getLooper().quitSafely();
+        closed_ = true;
+    }
+
+    @SuppressLint("HandlerLeak")
+    @Override
+    protected void onLooperPrepared() {
+        super.onLooperPrepared();
+
+        startTime_ = System.currentTimeMillis();
+
+        // set up keychain
+        keyChain_ = configureKeyChain();
+        // set up face
+        face_ = new Face();
+        try {
+            face_.setCommandSigningInfo(keyChain_, keyChain_.getDefaultCertificateName());
+        } catch (SecurityException e) {
+            e.printStackTrace();
+        }
+
+        handler_ = new Handler() {
+            @Override
+            public void handleMessage(@NonNull Message msg) {
+                switch (msg.what) {
+                    case MSG_DO_SOME_WORK:
+                        doSomeWork();
+                        break;
+                    case MSG_INTEREST_SEND_REQUEST:
+                        Interest interest = (Interest) msg.obj;
+                        sendInterest(interest);
+                        break;
+                    default:
+                        throw new IllegalStateException();
+                }
+            }
+        };
+
+        doSomeWork();
     }
 
     // taken from https://github.com/named-data-mobile/NFD-android/blob/4a20a88fb288403c6776f81c1d117cfc7fced122/app/src/main/java/net/named_data/nfd/utils/NfdcHelper.java
-    private static KeyChain configureKeyChain() {
+    private KeyChain configureKeyChain() {
 
         final MemoryIdentityStorage identityStorage = new MemoryIdentityStorage();
         final MemoryPrivateKeyStorage privateKeyStorage = new MemoryPrivateKeyStorage();
@@ -182,6 +180,10 @@ public class NetworkThread implements Runnable {
         }
 
         return keyChain;
+    }
+
+    public Handler getHandler() {
+        return handler_;
     }
 
 }

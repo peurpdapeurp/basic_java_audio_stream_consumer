@@ -1,8 +1,13 @@
 package com.example.audio_consumer.stream_fetcher;
 
+import android.annotation.SuppressLint;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Message;
+import android.os.SystemClock;
 import android.util.Log;
+import androidx.annotation.NonNull;
 
-import com.example.audio_consumer.Constants;
 import com.example.audio_consumer.Helpers;
 
 import net.named_data.jndn.ContentType;
@@ -12,123 +17,234 @@ import net.named_data.jndn.Name;
 import net.named_data.jndn.encoding.EncodingException;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.PriorityQueue;
-import java.util.Timer;
-import java.util.TimerTask;
-import java.util.concurrent.LinkedTransferQueue;
 
-public class StreamFetcher implements NetworkThread.Observer {
+public class StreamFetcher extends HandlerThread {
 
     private static final String TAG = "StreamFetcher";
 
-    private final int FINAL_BLOCK_ID_UNKNOWN = -1;
+    int printStateCounter_ = 0;
 
-    boolean currentlyFetchingStream_ = false;
-    Name currentStreamName_;
-    PriorityQueue<Long> requestQueue_;
-    SegNumGenerator segNumGenerator_;
-    RequestSender requestSender_;
-    LinkedTransferQueue<Interest> interestOutputQueue_;
-    RttEstimator rttEstimator_;
-    HashMap<Long, Timer> interestTimers_;
-    HashSet<Long> retransmittedSegNums_;
-    long currentStreamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
+    // Private constants
+    private static final int FINAL_BLOCK_ID_UNKNOWN = -1;
+    private static final int NO_SEGS_SENT = -1;
+    private static final int PROCESSING_INTERVAL_MS = 100;
 
-    public StreamFetcher(LinkedTransferQueue interestOutputQueue) {
-        requestQueue_ = new PriorityQueue<>();
-        segNumGenerator_ = new SegNumGenerator();
-        requestSender_ = new RequestSender();
-        interestOutputQueue_ = interestOutputQueue;
+    // Messages
+    public static final int MSG_DATA_RECEIVED = 0;
+    private static final int MSG_DO_SOME_WORK = 1;
+
+    private boolean currentlyFetchingStream_ = false;
+    private PriorityQueue<Long> retransmissionQueue_;
+    private Name currentStreamName_;
+    private long currentStreamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
+    private long highestSegSent_ = NO_SEGS_SENT;
+    private long msPerSegNum_;
+    private long streamFetchStartTime_;
+    private int numOutstandingInterests_ = 0;
+    private HashMap<Long, Long> segSendTimes_;
+    private HashMap<Long, Object> rtoTokens_;
+    private CwndCalculator cwndCalculator_;
+    private RttEstimator rttEstimator_;
+    private Handler handler_ = null;
+    private Handler networkThreadHandler_;
+    boolean closed_ = false;
+
+    public static class DataInfo {
+        public DataInfo(Data data, long receiveTime) {
+            this.data = data;
+            this.receiveTime = receiveTime;
+        }
+        Data data;
+        long receiveTime;
+    }
+
+    private long getTimeSinceStreamFetchStart() {
+        return System.currentTimeMillis() - streamFetchStartTime_;
+    }
+
+    private void printState() {
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "Current state of StreamFetcher:" + "\n" +
+                "currentStreamFinalBlockId_: " + currentStreamFinalBlockId_ + ", " +
+                "highestSegSent_: " + highestSegSent_ + ", " +
+                "numOutstandingInterests_: " + numOutstandingInterests_ + "\n" +
+                "retransmissionQueue_: " + retransmissionQueue_ + "\n" +
+                "segSendTimes_: " + segSendTimes_);
+    }
+
+    public StreamFetcher(Name streamName, long msPerSegNum, Handler networkThreadHandler) {
+        super(TAG);
+        cwndCalculator_ = new CwndCalculator();
+        retransmissionQueue_ = new PriorityQueue<>();
+        currentStreamName_ = streamName;
+        segSendTimes_ = new HashMap<>();
+        rtoTokens_ = new HashMap<>();
         rttEstimator_ = new RttEstimator();
-        interestTimers_ = new HashMap<>();
-        retransmittedSegNums_ = new HashSet<>();
+        msPerSegNum_ = msPerSegNum;
+        networkThreadHandler_ = networkThreadHandler;
+        Log.d(TAG, "Generating segment numbers to fetch at " + msPerSegNum_ + " per segment number.");
     }
 
-    public void close() {
-        segNumGenerator_.stop();
-        requestSender_.stop();
-        requestQueue_.clear();
-        currentStreamName_ = null;
-        currentlyFetchingStream_ = false;
-        retransmittedSegNums_.clear();
-        currentStreamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
-        Log.d(TAG, "Close called.");
-    }
-
-    /**
-     * @param producerSamplingRate Audio sampling rate of producer (samples per second).
-     * @param framesPerSegment ADTS frames per segment.
-     */
-    public boolean startFetchingStream(Name streamName, long producerSamplingRate, long framesPerSegment) {
+    public boolean startFetchingStream() {
+        if (handler_ == null) return false;
         if (currentlyFetchingStream_) {
             Log.w(TAG, "Already fetching a stream with name : " + currentStreamName_.toUri());
             return false;
         }
-        requestQueue_.clear();
-        currentStreamName_ = streamName;
-        Log.d(TAG, "Calculating msPerSegNum as : " + "\n" +
-                        "(" + framesPerSegment + " * " + Constants.SAMPLES_PER_ADTS_FRAME +
-                " * " + Constants.MILLISECONDS_PER_SECOND + ")" + " / " + producerSamplingRate + ")" );
-        long msPerSegNum = (framesPerSegment * Constants.SAMPLES_PER_ADTS_FRAME *
-                            Constants.MILLISECONDS_PER_SECOND) / producerSamplingRate;
-        Log.d(TAG, "Generating segment numbers to fetch at " + msPerSegNum + " per segment number.");
-        segNumGenerator_.start(0, msPerSegNum);
-        requestSender_.start();
         currentlyFetchingStream_ = true;
+        streamFetchStartTime_ = System.currentTimeMillis();
+        doSomeWork(); // start the doSomeWork processing cycle
         return true;
     }
 
-    @Override
-    public void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime,
-                                      int outstandingInterests) {
-        Log.d(TAG, "Got audio packet with name: " + audioPacket.getName());
-        long segmentNumber;
+    public void close() {
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "close called");
+        handler_.removeCallbacksAndMessages(null);
+        handler_.getLooper().quitSafely();
+        closed_ = true;
+    }
+
+    public Handler getHandler() {
+        return handler_;
+    }
+
+    private void doSomeWork() {
+
+        if (closed_) return;
+
+        while (retransmissionQueue_.size() != 0 && withinCwnd()) {
+            Long segNum = retransmissionQueue_.poll();
+            if (segNum == null) continue;
+            transmitInterest(segNum, true);
+        }
+
+        if (retransmissionQueue_.size() == 0 && numOutstandingInterests_ == 0 &&
+                currentStreamFinalBlockId_ != FINAL_BLOCK_ID_UNKNOWN) {
+            close();
+            return;
+        }
+
+        if (currentStreamFinalBlockId_ == FINAL_BLOCK_ID_UNKNOWN ||
+                highestSegSent_ < currentStreamFinalBlockId_) {
+            while (nextSegShouldBeSent() && withinCwnd()) {
+                highestSegSent_++;
+                transmitInterest(highestSegSent_, false);
+            }
+        }
+
+        if (printStateCounter_ < 10) printStateCounter_++; else { printState(); printStateCounter_ = 0; }
+
+        scheduleNextWork(SystemClock.uptimeMillis(), PROCESSING_INTERVAL_MS);
+    }
+
+    private void scheduleNextWork(long thisOperationStartTimeMs, long intervalMs) {
+        handler_.removeMessages(MSG_DO_SOME_WORK);
+        handler_.sendEmptyMessageAtTime(MSG_DO_SOME_WORK, thisOperationStartTimeMs + intervalMs);
+    }
+
+    private boolean nextSegShouldBeSent() {
+        long timeSinceFetchStart = getTimeSinceStreamFetchStart();
+        boolean nextSegShouldBeSent = false;
+        if (timeSinceFetchStart / msPerSegNum_ > highestSegSent_) {
+            nextSegShouldBeSent = true;
+        }
+        return nextSegShouldBeSent;
+    }
+
+    private void transmitInterest(final long segNum, boolean isRetransmission) {
+        Interest interestToSend = new Interest(currentStreamName_);
+        interestToSend.getName().appendSegment(segNum);
+        long rto = new Double(rttEstimator_.getEstimatedRto()).longValue();
+        interestToSend.setInterestLifetimeMilliseconds(rto);
+        interestToSend.setCanBePrefix(false);
+        interestToSend.setMustBeFresh(false);
+        Object rtoToken = new Object();
+        handler_.postAtTime(new Runnable() {
+            @Override
+            public void run() {
+                Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rto timeout (seg num " + segNum + ")");
+                modifyNumOutstandingInterests(-1);
+                retransmissionQueue_.add(segNum);
+            }
+        }, rtoToken, SystemClock.uptimeMillis() + rto);
+        rtoTokens_.put(segNum, rtoToken);
+        if (isRetransmission) {
+            segSendTimes_.remove(segNum);
+        } else {
+            segSendTimes_.put(segNum, System.currentTimeMillis());
+        }
+        networkThreadHandler_.obtainMessage(NetworkThread.MSG_INTEREST_SEND_REQUEST, interestToSend).sendToTarget();
+        modifyNumOutstandingInterests(1);
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "interest transmitted (seg num " + segNum + ", " + "rto " + rto + ", " + "retx: " + isRetransmission + ")");
+    }
+
+    private void processData(DataInfo dataInfo) {
+        Data audioPacket = dataInfo.data;
+        long receiveTime = dataInfo.receiveTime;
+        long segNum;
         try {
-            segmentNumber = audioPacket.getName().get(-1).toSegment();
+            segNum = audioPacket.getName().get(-1).toSegment();
         } catch (EncodingException e) {
             e.printStackTrace();
             return;
         }
-        Log.d(TAG, "Got packet with segment number " + segmentNumber);
 
-        if (retransmittedSegNums_.contains(segmentNumber)) {
-            Log.d(TAG, "Segment number " + segmentNumber + " was retransmitted, not using it for RTT estimation.");
-        } else {
-            Log.d(TAG, "Segment number " + segmentNumber + " was not retransmitted." + " \n" +
-                            "Adding measurement to rtt estimator: " + "\n" +
-                            "RTT: " + (satisfiedTime - sentTime) + "\n" +
-                            "Number of outstanding interests: " + outstandingInterests);
-            rttEstimator_.addMeasurement(satisfiedTime - sentTime, outstandingInterests);
+        if (segSendTimes_.containsKey(segNum)) {
+            long rtt = receiveTime - segSendTimes_.get(segNum);
+            Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rtt estimator add measure (rtt " + rtt + ", " +
+                    "num outstanding interests  " + numOutstandingInterests_ + ")");
+            rttEstimator_.addMeasurement(rtt, numOutstandingInterests_);
+            Log.d(TAG, getTimeSinceStreamFetchStart() + " : " + "rto after last measure add: " +
+                    rttEstimator_.getEstimatedRto());
+            segSendTimes_.remove(segNum);
         }
 
-        Timer rtoTimer = interestTimers_.get(segmentNumber);
-        rtoTimer.cancel();
-        rtoTimer.purge();
+        handler_.removeCallbacksAndMessages(rtoTokens_.get(segNum));
 
-        if (audioPacket.getMetaInfo().getType() == ContentType.NACK) {
-            long finalBlockId = Helpers.bytesToLong(audioPacket.getContent().getImmutableArray());
-            Log.d(TAG, "Final block id found in application nack: " + finalBlockId);
+        long finalBlockId = FINAL_BLOCK_ID_UNKNOWN;
+        boolean audioPacketWasAppNack = audioPacket.getMetaInfo().getType() == ContentType.NACK;
+        if (audioPacketWasAppNack) {
+            finalBlockId = Helpers.bytesToLong(audioPacket.getContent().getImmutableArray());
             currentStreamFinalBlockId_ = finalBlockId;
         }
         else {
             Name.Component finalBlockIdComponent = audioPacket.getMetaInfo().getFinalBlockId();
             if (finalBlockIdComponent != null) {
                 try {
-                    long finalBlockId = finalBlockIdComponent.toSegment();
-                    Log.d(TAG, "Got a packet with final block id of " + finalBlockId);
+                    finalBlockId = finalBlockIdComponent.toSegment();
                     currentStreamFinalBlockId_ = finalBlockId;
                 }
-                catch (EncodingException e) {
-                    e.printStackTrace();
-                }
+                catch (EncodingException e) { }
             }
         }
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "receive data (" +
+                "name " + audioPacket.getName().toString() + ", " +
+                "seg num " + segNum + ", " +
+                "app nack: " + audioPacketWasAppNack +
+                ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId)
+                + ")");
+
+        modifyNumOutstandingInterests(-1);
     }
 
+    @SuppressLint("HandlerLeak")
     @Override
-    public void onInterestTimeout(Interest interest, long timeoutTime) {
-
+    protected void onLooperPrepared() {
+        handler_ = new Handler() {
+            @Override
+            public void handleMessage(@NonNull Message msg) {
+                switch (msg.what) {
+                    case MSG_DO_SOME_WORK:
+                        doSomeWork();
+                        break;
+                    case MSG_DATA_RECEIVED:
+                        processData((DataInfo) msg.obj);
+                        break;
+                    default:
+                        throw new IllegalStateException();
+                }
+            }
+        };
     }
 
     private class CwndCalculator {
@@ -149,121 +265,13 @@ public class StreamFetcher implements NetworkThread.Observer {
 
     }
 
-    private class SegNumGenerator implements Runnable {
-
-        private static final String TAG = "SegNumGenerator";
-
-        private Thread t_;
-        private long initialSegNum_;
-        private long msPerSegNum_; // how many milliseconds to wait between each segment number generation
-
-        public void start(long initialSegNum, long msPerSegNum) {
-            initialSegNum_ = initialSegNum;
-            msPerSegNum_ = msPerSegNum;
-            if (t_ == null) {
-                t_ = new Thread(this);
-                t_.start();
-            }
-        }
-
-        public void stop() {
-            if (t_ != null) {
-                t_.interrupt();
-                try {
-                    t_.join();
-                } catch (InterruptedException e) {}
-                t_ = null;
-            }
-        }
-
-        @Override
-        public void run() {
-
-            Log.d(TAG,"Started.");
-
-            long currentSegNum = initialSegNum_;
-            try {
-                while (!Thread.interrupted()) {
-                    Log.d(TAG, "Adding segment number " + currentSegNum + " to request queue.");
-                    requestQueue_.add(currentSegNum);
-                    currentSegNum++;
-                    Thread.sleep(msPerSegNum_);
-                }
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-
-            Log.d(TAG,"Stopped.");
-
-        }
+    private boolean withinCwnd() {
+        return numOutstandingInterests_ < cwndCalculator_.getCurrentCwnd();
     }
 
-    private class RequestSender implements Runnable {
-
-        private static final String TAG = "RequestSender";
-
-        private Thread t_;
-
-        public void start() {
-            if (t_ == null) {
-                t_ = new Thread(this);
-                t_.start();
-            }
-        }
-
-        public void stop() {
-            if (t_ != null) {
-                t_.interrupt();
-                try {
-                    t_.join();
-                } catch (InterruptedException e) {}
-                t_ = null;
-            }
-        }
-
-        @Override
-        public void run() {
-
-            Log.d(TAG,"Started.");
-
-            while (!Thread.interrupted()) {
-                if (requestQueue_.size() != 0) {
-                    Long currentSegNum = requestQueue_.poll();
-                    if (currentSegNum == null) continue;
-                    Log.d(TAG, "Detected segment number " + currentSegNum + " in request queue.");
-                    if (currentStreamFinalBlockId_ != FINAL_BLOCK_ID_UNKNOWN && currentSegNum > currentStreamFinalBlockId_) {
-                        Log.d(TAG, "Segment number " + currentSegNum + " was past final block id for this stream (" +
-                                        currentStreamFinalBlockId_ + "), not sending an interest for it.");
-                        // if we detect a segment number from the request queue greater than the final block id,
-                        // it means that the segment number generator has already generated enough segment numbers
-                        // to fetch this stream, so close it
-                        segNumGenerator_.stop();
-                        continue;
-                    }
-                    Interest interestToSend = new Interest(currentStreamName_);
-                    interestToSend.getName().appendSegment(currentSegNum);
-                    long rto = (long) rttEstimator_.getEstimatedRto();
-                    Log.d(TAG, "Sending interest with rto: " + rto);
-                    interestToSend.setInterestLifetimeMilliseconds(rto);
-                    interestToSend.setCanBePrefix(false);
-                    interestToSend.setMustBeFresh(false);
-                    Timer rtoTimer = new Timer();
-                    rtoTimer.schedule(new TimerTask() {
-                        @Override
-                        public void run() {
-                            Log.d(TAG, "Rto timer for segment number " + currentSegNum + " timed out.");
-                            requestQueue_.add(currentSegNum);
-                            retransmittedSegNums_.add(currentSegNum);
-                        }
-                    }, rto);
-                    interestTimers_.put(currentSegNum, rtoTimer);
-                    interestOutputQueue_.add(interestToSend);
-                }
-            }
-
-            Log.d(TAG,"Stopped.");
-
-        }
+    private void modifyNumOutstandingInterests(int modifier) {
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "modified num outstanding interest (" +
+                    "current value " + numOutstandingInterests_ + ", " + "modifier " + modifier + ")");
+        numOutstandingInterests_ += modifier;
     }
-
 }

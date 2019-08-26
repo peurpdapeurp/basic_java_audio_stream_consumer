@@ -4,14 +4,13 @@ package com.example.audio_consumer;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.Bundle;
+import android.os.Handler;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
-import com.example.audio_consumer.stream_fetcher.AlternateNetworkThread;
-import com.example.audio_consumer.stream_fetcher.AlternateStreamFetcher;
 import com.example.audio_consumer.stream_fetcher.NetworkThread;
 import com.example.audio_consumer.stream_fetcher.StreamFetcher;
 import com.example.audio_consumer.stream_fetcher.StreamPlayer;
@@ -22,11 +21,9 @@ import net.named_data.jndn.Name;
 
 import java.util.concurrent.LinkedTransferQueue;
 
-public class MainActivity extends AppCompatActivity implements NetworkThread.Observer {
+public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
-
-    private static final boolean USE_ALTERNATE_STREAM_FETCHER_AND_NETWORK_THREAD = true;
 
     Button startFetchingButton_;
     Button stopFetchingButton_;
@@ -35,13 +32,10 @@ public class MainActivity extends AppCompatActivity implements NetworkThread.Obs
     EditText streamNameInput_;
     EditText streamIdInput_;
 
-    StreamPlayer streamPlayer_;
-
     StreamFetcher currentStreamFetcher_;
+    Name currentStreamName_;
     NetworkThread networkThread_;
-
-    AlternateStreamFetcher alternateCurrentStreamFetcher_;
-    AlternateNetworkThread alternateNetworkThread_;
+    StreamPlayer streamPlayer_;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,148 +46,68 @@ public class MainActivity extends AppCompatActivity implements NetworkThread.Obs
         streamNameInput_ = (EditText) findViewById(R.id.stream_name_input);
         streamIdInput_ = (EditText) findViewById(R.id.stream_id_input);
 
-        if (USE_ALTERNATE_STREAM_FETCHER_AND_NETWORK_THREAD) {
-            LinkedTransferQueue<Interest> interestTransferQueue = new LinkedTransferQueue<>();
+        streamPlayer_ = new StreamPlayer(this);
+        streamPlayer_.start();
+        while (streamPlayer_.getHandler() == null) {} // block until stream player's handler is initialized
 
-            streamPlayer_ = new StreamPlayer(this);
-            networkThread_ = new NetworkThread(interestTransferQueue);
-            networkThread_.addObserver(streamPlayer_);
-            networkThread_.addObserver(this);
+        networkThread_ = new NetworkThread(streamPlayer_.getHandler());
+        networkThread_.start();
+        while (networkThread_.getHandler() == null) {} // block until network thread's handler is initialized
 
-            networkThread_.start();
-            streamPlayer_.start();
+        startFetchingButton_ = (Button) findViewById(R.id.start_fetch_button);
+        startFetchingButton_.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                currentStreamName_ = new Name(getString(R.string.network_prefix))
+                        .append(streamNameInput_.getText().toString())
+                        .append(streamIdInput_.getText().toString())
+                        .appendVersion(0);
+                currentStreamFetcher_ = new StreamFetcher(currentStreamName_,
+                        Helpers.calculateMsPerSeg(8000, 10),
+                        networkThread_.getHandler());
+                currentStreamFetcher_.start();
+                while (currentStreamFetcher_.getHandler() == null) {} // block until stream fetcher's handler is initialized
 
-            startFetchingButton_ = (Button) findViewById(R.id.start_fetch_button);
-            startFetchingButton_.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    currentStreamFetcher_ = new StreamFetcher(interestTransferQueue);
-                    networkThread_.addObserver(currentStreamFetcher_);
-                    Name streamName = new Name(getString(R.string.network_prefix))
-                            .append(streamNameInput_.getText().toString())
-                            .append(streamIdInput_.getText().toString())
-                            .appendVersion(0);
-                    boolean ret = currentStreamFetcher_.startFetchingStream(
-                            streamName, 8000, 10);
-                    Log.d(TAG, (ret ? "Successfully began fetching stream" : "Failed to start fetching stream") +
-                            " with name: " + streamName.toUri());
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            uiLog_.append("---" + "Time: " + System.currentTimeMillis() + "---" + "\n" +
-                                    (ret ? "Successfully began fetching stream" : "Failed to start fetching stream") +
-                                    " with name: " + streamName.toUri() + "\n" +
-                                    "\n");
-                        }
-                    });
-                }
-            });
+                currentStreamName_ = new Name(getString(R.string.network_prefix))
+                        .append(streamNameInput_.getText().toString())
+                        .append(streamIdInput_.getText().toString())
+                        .appendVersion(0);
+                networkThread_.addStreamFetcherHandler(currentStreamName_, currentStreamFetcher_.getHandler());
+                boolean ret = currentStreamFetcher_.startFetchingStream();
+                Log.d(TAG, (ret ? "Successfully began fetching stream" : "Failed to start fetching stream") +
+                        " with name: " + currentStreamName_.toUri());
+            }
+        });
 
-            stopFetchingButton_ = (Button) findViewById(R.id.stop_fetch_button);
-            stopFetchingButton_.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    currentStreamFetcher_.close();
-                    networkThread_.removeObserver(currentStreamFetcher_);
-                    currentStreamFetcher_ = null;
-                }
-            });
+        stopFetchingButton_ = (Button) findViewById(R.id.stop_fetch_button);
+        stopFetchingButton_.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                currentStreamFetcher_.close();
+                networkThread_.removeStreamFetcherHandler(currentStreamName_);
+                currentStreamFetcher_ = null;
+                currentStreamName_ = null;
+            }
+        });
 
-            clearLogButton_ = (Button) findViewById(R.id.clear_log_button);
-            clearLogButton_.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    uiLog_.setText("");
-                }
-            });
-        }
-        else {
-            LinkedTransferQueue<Interest> interestTransferQueue = new LinkedTransferQueue<>();
+        clearLogButton_ = (Button) findViewById(R.id.clear_log_button);
+        clearLogButton_.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                uiLog_.setText("");
+            }
+        });
 
-            streamPlayer_ = new StreamPlayer(this);
-            networkThread_ = new NetworkThread(interestTransferQueue);
-            networkThread_.addObserver(streamPlayer_);
-            networkThread_.addObserver(this);
-
-            networkThread_.start();
-            streamPlayer_.start();
-
-            startFetchingButton_ = (Button) findViewById(R.id.start_fetch_button);
-            startFetchingButton_.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    currentStreamFetcher_ = new StreamFetcher(interestTransferQueue);
-                    networkThread_.addObserver(currentStreamFetcher_);
-                    Name streamName = new Name(getString(R.string.network_prefix))
-                            .append(streamNameInput_.getText().toString())
-                            .append(streamIdInput_.getText().toString())
-                            .appendVersion(0);
-                    boolean ret = currentStreamFetcher_.startFetchingStream(
-                            streamName, 8000, 10);
-                    Log.d(TAG, (ret ? "Successfully began fetching stream" : "Failed to start fetching stream") +
-                            " with name: " + streamName.toUri());
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            uiLog_.append("---" + "Time: " + System.currentTimeMillis() + "---" + "\n" +
-                                    (ret ? "Successfully began fetching stream" : "Failed to start fetching stream") +
-                                    " with name: " + streamName.toUri() + "\n" +
-                                    "\n");
-                        }
-                    });
-                }
-            });
-
-            stopFetchingButton_ = (Button) findViewById(R.id.stop_fetch_button);
-            stopFetchingButton_.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    currentStreamFetcher_.close();
-                    networkThread_.removeObserver(currentStreamFetcher_);
-                    currentStreamFetcher_ = null;
-                }
-            });
-
-            clearLogButton_ = (Button) findViewById(R.id.clear_log_button);
-            clearLogButton_.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    uiLog_.setText("");
-                }
-            });
-        }
     }
 
     @Override
-    public void onAudioPacketReceived(Data audioPacket, long sentTime, long satisfiedTime,
-                                      int outstandingInterests) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                uiLog_.append("---" + "Time: " + System.currentTimeMillis() + "---" + "\n" +
-                        "Retrieved audio data packet." + "\n" +
-                        "Name: " + audioPacket.getName() + "\n" +
-                        "Interest send time: " + sentTime + "\n" +
-                        "Data received time: " + satisfiedTime + "\n" +
-                        "Rtt: " + (satisfiedTime - sentTime) + "\n" +
-                        "\n");
-            }
-        });
+    protected void onDestroy() {
+        super.onDestroy();
+
+        networkThread_.close();
+        streamPlayer_.stop();
+        if (currentStreamFetcher_ != null) {
+            currentStreamFetcher_.close();
+        }
     }
-
-    @Override
-    public void onInterestTimeout(Interest interest, long timeoutTime) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                uiLog_.append("---" + "Time: " + System.currentTimeMillis() + "---" + "\n" +
-                        "Interest timed out." + "\n" +
-                        "Name: " + interest.getName() + "\n" +
-                        "Timeout time: " + timeoutTime + "\n" +
-                        "\n");
-            }
-        });
-    }
-
-
 }

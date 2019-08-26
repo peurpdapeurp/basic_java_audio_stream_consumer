@@ -13,8 +13,13 @@ import java.util.Arrays;
 
 public class Helpers {
 
-    public static long currentUnixTimeMilliseconds() {
-        return System.currentTimeMillis();
+    /**
+     * @param producerSamplingRate Audio sampling rate of producer (samples per second).
+     * @param framesPerSegment ADTS frames per segment.
+     */
+    public static long calculateMsPerSeg(long producerSamplingRate, long framesPerSegment) {
+        return (framesPerSegment * Constants.SAMPLES_PER_ADTS_FRAME *
+                Constants.MILLISECONDS_PER_SECOND) / producerSamplingRate;
     }
 
     // https://stackoverflow.com/questions/4485128/how-do-i-convert-long-to-byte-and-back-in-java

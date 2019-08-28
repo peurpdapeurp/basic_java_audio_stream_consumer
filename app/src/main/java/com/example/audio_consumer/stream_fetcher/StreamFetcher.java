@@ -17,6 +17,7 @@ import net.named_data.jndn.Name;
 import net.named_data.jndn.encoding.EncodingException;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.PriorityQueue;
 
 public class StreamFetcher extends HandlerThread {
@@ -29,26 +30,35 @@ public class StreamFetcher extends HandlerThread {
     private static final int FINAL_BLOCK_ID_UNKNOWN = -1;
     private static final int NO_SEGS_SENT = -1;
     private static final int PROCESSING_INTERVAL_MS = 100;
+    private static final int EVENT_DATA_RECEIVE = 0; // for outstanding interest counter
+    private static final int EVENT_INTEREST_TIMEOUT = 1; // for outstanding interest counter
+    private static final int EVENT_INTEREST_TRANSMIT = 2; // for outstanding interest counter
 
     // Messages
     public static final int MSG_DATA_RECEIVED = 0;
     private static final int MSG_DO_SOME_WORK = 1;
+    public static final int MSG_NETWORK_THREAD_READY = 2;
+    public static final int MSG_NETWORK_THREAD_FINISHED = 3;
 
-    private boolean currentlyFetchingStream_ = false;
+    private boolean requestStreamFetchStartCalled_ = false;
     private PriorityQueue<Long> retransmissionQueue_;
-    private Name currentStreamName_;
-    private long currentStreamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
+    private Name streamName_;
+    private long streamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
     private long highestSegSent_ = NO_SEGS_SENT;
     private long msPerSegNum_;
     private long streamFetchStartTime_;
-    private int numOutstandingInterests_ = 0;
     private HashMap<Long, Long> segSendTimes_;
     private HashMap<Long, Object> rtoTokens_;
+    private HashSet<Long> timedOutSegs_;
     private CwndCalculator cwndCalculator_;
     private RttEstimator rttEstimator_;
     private Handler handler_ = null;
     private Handler networkThreadHandler_;
     boolean closed_ = false;
+    private int numOutstandingInterests_ = 0;
+    private int numInterestsTransmitted_ = 0;
+    private int numInterestTimeouts_ = 0;
+    private int numDataReceives_ = 0;
 
     public static class DataInfo {
         public DataInfo(Data data, long receiveTime) {
@@ -64,9 +74,13 @@ public class StreamFetcher extends HandlerThread {
     }
 
     private void printState() {
-        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "Current state of StreamFetcher:" + "\n" +
-                "currentStreamFinalBlockId_: " + currentStreamFinalBlockId_ + ", " +
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "Current state of StreamFetcher:" + "\n" +
+                "streamFinalBlockId_: " + streamFinalBlockId_ + ", " +
                 "highestSegSent_: " + highestSegSent_ + ", " +
+                "numInterestsTransmitted_: " + numInterestsTransmitted_ + ", " +
+                "numInterestTimeouts_: " + numInterestTimeouts_ + ", " +
+                "numDataReceives_: " + numDataReceives_ + ", " +
                 "numOutstandingInterests_: " + numOutstandingInterests_ + "\n" +
                 "retransmissionQueue_: " + retransmissionQueue_ + "\n" +
                 "segSendTimes_: " + segSendTimes_);
@@ -76,8 +90,9 @@ public class StreamFetcher extends HandlerThread {
         super(TAG);
         cwndCalculator_ = new CwndCalculator();
         retransmissionQueue_ = new PriorityQueue<>();
-        currentStreamName_ = streamName;
+        streamName_ = streamName;
         segSendTimes_ = new HashMap<>();
+        timedOutSegs_ = new HashSet<>();
         rtoTokens_ = new HashMap<>();
         rttEstimator_ = new RttEstimator();
         msPerSegNum_ = msPerSegNum;
@@ -85,20 +100,40 @@ public class StreamFetcher extends HandlerThread {
         Log.d(TAG, "Generating segment numbers to fetch at " + msPerSegNum_ + " per segment number.");
     }
 
-    public boolean startFetchingStream() {
+    public boolean requestStartStreamFetch() {
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "requestStartStreamFetch called");
         if (handler_ == null) return false;
-        if (currentlyFetchingStream_) {
-            Log.w(TAG, "Already fetching a stream with name : " + currentStreamName_.toUri());
+        if (requestStreamFetchStartCalled_) {
+            Log.w(TAG, "Already fetching a stream with name : " + streamName_.toUri());
             return false;
         }
-        currentlyFetchingStream_ = true;
-        streamFetchStartTime_ = System.currentTimeMillis();
-        doSomeWork(); // start the doSomeWork processing cycle
+        requestStreamFetchStartCalled_ = true;
+        networkThreadHandler_
+                .obtainMessage(NetworkThread.MSG_STREAM_FETCH_START,
+                                new NetworkThread.StreamFetcherState(streamName_, handler_))
+                .sendToTarget();
         return true;
     }
 
-    public void close() {
-        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "close called");
+    private void startStreamFetch() {
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "startStreamFetch called");
+        streamFetchStartTime_ = System.currentTimeMillis();
+        doSomeWork(); // start the doSomeWork processing cycle
+    }
+
+    public void requestClose() {
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "requestClose called");
+        networkThreadHandler_
+                .obtainMessage(NetworkThread.MSG_STREAM_FETCH_FINISH, streamName_)
+                .sendToTarget();
+    }
+
+    private void close() {
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "close called");
         handler_.removeCallbacksAndMessages(null);
         handler_.getLooper().quitSafely();
         closed_ = true;
@@ -119,13 +154,13 @@ public class StreamFetcher extends HandlerThread {
         }
 
         if (retransmissionQueue_.size() == 0 && numOutstandingInterests_ == 0 &&
-                currentStreamFinalBlockId_ != FINAL_BLOCK_ID_UNKNOWN) {
-            close();
+                streamFinalBlockId_ != FINAL_BLOCK_ID_UNKNOWN) {
+            requestClose();
             return;
         }
 
-        if (currentStreamFinalBlockId_ == FINAL_BLOCK_ID_UNKNOWN ||
-                highestSegSent_ < currentStreamFinalBlockId_) {
+        if (streamFinalBlockId_ == FINAL_BLOCK_ID_UNKNOWN ||
+                highestSegSent_ < streamFinalBlockId_) {
             while (nextSegShouldBeSent() && withinCwnd()) {
                 highestSegSent_++;
                 transmitInterest(highestSegSent_, false);
@@ -152,9 +187,9 @@ public class StreamFetcher extends HandlerThread {
     }
 
     private void transmitInterest(final long segNum, boolean isRetransmission) {
-        Interest interestToSend = new Interest(currentStreamName_);
+        Interest interestToSend = new Interest(streamName_);
         interestToSend.getName().appendSegment(segNum);
-        long rto = new Double(rttEstimator_.getEstimatedRto()).longValue();
+        long rto = (long) rttEstimator_.getEstimatedRto();
         interestToSend.setInterestLifetimeMilliseconds(rto);
         interestToSend.setCanBePrefix(false);
         interestToSend.setMustBeFresh(false);
@@ -163,7 +198,8 @@ public class StreamFetcher extends HandlerThread {
             @Override
             public void run() {
                 Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rto timeout (seg num " + segNum + ")");
-                modifyNumOutstandingInterests(-1);
+                timedOutSegs_.add(segNum);
+                modifyNumOutstandingInterests(-1, EVENT_INTEREST_TIMEOUT);
                 retransmissionQueue_.add(segNum);
             }
         }, rtoToken, SystemClock.uptimeMillis() + rto);
@@ -174,7 +210,7 @@ public class StreamFetcher extends HandlerThread {
             segSendTimes_.put(segNum, System.currentTimeMillis());
         }
         networkThreadHandler_.obtainMessage(NetworkThread.MSG_INTEREST_SEND_REQUEST, interestToSend).sendToTarget();
-        modifyNumOutstandingInterests(1);
+        modifyNumOutstandingInterests(1, EVENT_INTEREST_TRANSMIT);
         Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "interest transmitted (seg num " + segNum + ", " + "rto " + rto + ", " + "retx: " + isRetransmission + ")");
     }
 
@@ -191,40 +227,58 @@ public class StreamFetcher extends HandlerThread {
 
         if (segSendTimes_.containsKey(segNum)) {
             long rtt = receiveTime - segSendTimes_.get(segNum);
-            Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rtt estimator add measure (rtt " + rtt + ", " +
-                    "num outstanding interests  " + numOutstandingInterests_ + ")");
+            Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                    "rtt estimator add measure (rtt " + rtt + ", " +
+                    "num outstanding interests " + numOutstandingInterests_ +
+                    ")");
+            if (numOutstandingInterests_ <= 0) {
+                throw new IllegalStateException(getTimeSinceStreamFetchStart() + ": " +
+                        "detected bad measurements being fed to rtt estimator (" +
+                        "numOutstandingInterests_ " + numOutstandingInterests_ + ", " +
+                        "numDataReceives_ " + numDataReceives_ + ", " +
+                        "numInterestTimeouts_ " + numInterestTimeouts_ + ", " +
+                        "numInterestsTransmitted_ " + numInterestsTransmitted_ +
+                        ")");
+            }
             rttEstimator_.addMeasurement(rtt, numOutstandingInterests_);
             Log.d(TAG, getTimeSinceStreamFetchStart() + " : " + "rto after last measure add: " +
                     rttEstimator_.getEstimatedRto());
             segSendTimes_.remove(segNum);
         }
 
+        retransmissionQueue_.remove(segNum);
         handler_.removeCallbacksAndMessages(rtoTokens_.get(segNum));
 
         long finalBlockId = FINAL_BLOCK_ID_UNKNOWN;
         boolean audioPacketWasAppNack = audioPacket.getMetaInfo().getType() == ContentType.NACK;
         if (audioPacketWasAppNack) {
             finalBlockId = Helpers.bytesToLong(audioPacket.getContent().getImmutableArray());
-            currentStreamFinalBlockId_ = finalBlockId;
+            streamFinalBlockId_ = finalBlockId;
         }
         else {
             Name.Component finalBlockIdComponent = audioPacket.getMetaInfo().getFinalBlockId();
             if (finalBlockIdComponent != null) {
                 try {
                     finalBlockId = finalBlockIdComponent.toSegment();
-                    currentStreamFinalBlockId_ = finalBlockId;
+                    streamFinalBlockId_ = finalBlockId;
                 }
                 catch (EncodingException e) { }
             }
         }
-        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "receive data (" +
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "receive data (" +
                 "name " + audioPacket.getName().toString() + ", " +
                 "seg num " + segNum + ", " +
-                "app nack: " + audioPacketWasAppNack +
+                "app nack " + audioPacketWasAppNack +
                 ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId)
                 + ")");
 
-        modifyNumOutstandingInterests(-1);
+        if (timedOutSegs_.contains(segNum)) {
+            modifyNumOutstandingInterests(0, EVENT_DATA_RECEIVE);
+        }
+        else {
+            modifyNumOutstandingInterests(-1, EVENT_DATA_RECEIVE);
+        }
     }
 
     @SuppressLint("HandlerLeak")
@@ -239,6 +293,12 @@ public class StreamFetcher extends HandlerThread {
                         break;
                     case MSG_DATA_RECEIVED:
                         processData((DataInfo) msg.obj);
+                        break;
+                    case MSG_NETWORK_THREAD_READY:
+                        startStreamFetch();
+                        break;
+                    case MSG_NETWORK_THREAD_FINISHED:
+                        close();
                         break;
                     default:
                         throw new IllegalStateException();
@@ -269,9 +329,28 @@ public class StreamFetcher extends HandlerThread {
         return numOutstandingInterests_ < cwndCalculator_.getCurrentCwnd();
     }
 
-    private void modifyNumOutstandingInterests(int modifier) {
-        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "modified num outstanding interest (" +
-                    "current value " + numOutstandingInterests_ + ", " + "modifier " + modifier + ")");
+    private void modifyNumOutstandingInterests(int modifier, int event_code) {
         numOutstandingInterests_ += modifier;
+        String eventString = "";
+        switch (event_code) {
+            case EVENT_DATA_RECEIVE:
+                numDataReceives_++;
+                eventString = "data_receive";
+                break;
+            case EVENT_INTEREST_TIMEOUT:
+                numInterestTimeouts_++;
+                eventString = "interest_timeout";
+                break;
+            case EVENT_INTEREST_TRANSMIT:
+                numInterestsTransmitted_++;
+                eventString = "interest_transmit";
+                break;
+        }
+
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "num outstanding interests changed (" +
+                "event " + eventString + ", " +
+                "new value " + numOutstandingInterests_ +
+                ")");
     }
 }

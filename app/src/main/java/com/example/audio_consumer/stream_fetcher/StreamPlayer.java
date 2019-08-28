@@ -162,7 +162,8 @@ public class StreamPlayer {
         }
 
         public void close() {
-            Log.d(TAG, getTimeSinceStart() + ": " + "close called");
+            Log.d(TAG, getTimeSinceStart() + ": " +
+                    "close called");
             handler_.removeCallbacksAndMessages(null);
             handler_.getLooper().quitSafely();
             closed_ = true;

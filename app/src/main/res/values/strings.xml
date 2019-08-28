@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">NASC</string>
-    <string name="network_prefix">/basic_ndn_audio_streamer</string>
+    <string name="network_prefix">/ndnpttv2</string>
 </resources>

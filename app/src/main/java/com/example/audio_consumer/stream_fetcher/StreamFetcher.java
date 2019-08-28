@@ -49,7 +49,6 @@ public class StreamFetcher extends HandlerThread {
     private long streamFetchStartTime_;
     private HashMap<Long, Long> segSendTimes_;
     private HashMap<Long, Object> rtoTokens_;
-    private HashSet<Long> timedOutSegs_;
     private CwndCalculator cwndCalculator_;
     private RttEstimator rttEstimator_;
     private Handler handler_ = null;
@@ -92,7 +91,6 @@ public class StreamFetcher extends HandlerThread {
         retransmissionQueue_ = new PriorityQueue<>();
         streamName_ = streamName;
         segSendTimes_ = new HashMap<>();
-        timedOutSegs_ = new HashSet<>();
         rtoTokens_ = new HashMap<>();
         rttEstimator_ = new RttEstimator();
         msPerSegNum_ = msPerSegNum;
@@ -198,7 +196,6 @@ public class StreamFetcher extends HandlerThread {
             @Override
             public void run() {
                 Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rto timeout (seg num " + segNum + ")");
-                timedOutSegs_.add(segNum);
                 modifyNumOutstandingInterests(-1, EVENT_INTEREST_TIMEOUT);
                 retransmissionQueue_.add(segNum);
             }
@@ -211,7 +208,13 @@ public class StreamFetcher extends HandlerThread {
         }
         networkThreadHandler_.obtainMessage(NetworkThread.MSG_INTEREST_SEND_REQUEST, interestToSend).sendToTarget();
         modifyNumOutstandingInterests(1, EVENT_INTEREST_TRANSMIT);
-        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "interest transmitted (seg num " + segNum + ", " + "rto " + rto + ", " + "retx: " + isRetransmission + ")");
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "interest transmitted (" +
+                "seg num " + segNum + ", " +
+                "rto " + rto + ", " +
+                "retx: " + isRetransmission + ", " +
+                "current num outstanding " + numOutstandingInterests_ +
+                ")");
     }
 
     private void processData(DataInfo dataInfo) {
@@ -246,9 +249,6 @@ public class StreamFetcher extends HandlerThread {
             segSendTimes_.remove(segNum);
         }
 
-        retransmissionQueue_.remove(segNum);
-        handler_.removeCallbacksAndMessages(rtoTokens_.get(segNum));
-
         long finalBlockId = FINAL_BLOCK_ID_UNKNOWN;
         boolean audioPacketWasAppNack = audioPacket.getMetaInfo().getType() == ContentType.NACK;
         if (audioPacketWasAppNack) {
@@ -269,16 +269,20 @@ public class StreamFetcher extends HandlerThread {
                 "receive data (" +
                 "name " + audioPacket.getName().toString() + ", " +
                 "seg num " + segNum + ", " +
-                "app nack " + audioPacketWasAppNack +
+                "app nack " + audioPacketWasAppNack + ", " +
+                "premature rto " + retransmissionQueue_.contains(segNum) +
                 ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId)
                 + ")");
 
-        if (timedOutSegs_.contains(segNum)) {
+        if (retransmissionQueue_.contains(segNum)) {
             modifyNumOutstandingInterests(0, EVENT_DATA_RECEIVE);
         }
         else {
             modifyNumOutstandingInterests(-1, EVENT_DATA_RECEIVE);
         }
+
+        retransmissionQueue_.remove(segNum);
+        handler_.removeCallbacksAndMessages(rtoTokens_.get(segNum));
     }
 
     @SuppressLint("HandlerLeak")

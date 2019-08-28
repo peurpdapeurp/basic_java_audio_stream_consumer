@@ -8,7 +8,8 @@ import android.os.SystemClock;
 import android.util.Log;
 import androidx.annotation.NonNull;
 
-import com.example.audio_consumer.Helpers;
+import com.example.audio_consumer.Helpers.Helpers;
+import com.example.audio_consumer.MainActivity;
 
 import net.named_data.jndn.ContentType;
 import net.named_data.jndn.Data;
@@ -17,7 +18,6 @@ import net.named_data.jndn.Name;
 import net.named_data.jndn.encoding.EncodingException;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.PriorityQueue;
 
 public class StreamFetcher extends HandlerThread {
@@ -25,6 +25,8 @@ public class StreamFetcher extends HandlerThread {
     private static final String TAG = "StreamFetcher";
 
     int printStateCounter_ = 0;
+
+    Handler uiHandler_;
 
     // Private constants
     private static final int FINAL_BLOCK_ID_UNKNOWN = -1;
@@ -85,7 +87,7 @@ public class StreamFetcher extends HandlerThread {
                 "segSendTimes_: " + segSendTimes_);
     }
 
-    public StreamFetcher(Name streamName, long msPerSegNum, Handler networkThreadHandler) {
+    public StreamFetcher(Name streamName, long msPerSegNum, Handler networkThreadHandler, Handler uiHandler) {
         super(TAG);
         cwndCalculator_ = new CwndCalculator();
         retransmissionQueue_ = new PriorityQueue<>();
@@ -95,7 +97,12 @@ public class StreamFetcher extends HandlerThread {
         rttEstimator_ = new RttEstimator();
         msPerSegNum_ = msPerSegNum;
         networkThreadHandler_ = networkThreadHandler;
+        uiHandler_ = uiHandler;
         Log.d(TAG, "Generating segment numbers to fetch at " + msPerSegNum_ + " per segment number.");
+    }
+
+    public Name getStreamName() {
+        return streamName_;
     }
 
     public boolean requestStartStreamFetch() {
@@ -135,6 +142,7 @@ public class StreamFetcher extends HandlerThread {
         handler_.removeCallbacksAndMessages(null);
         handler_.getLooper().quitSafely();
         closed_ = true;
+        uiHandler_.obtainMessage(MainActivity.MSG_STREAM_FETCHER_FINISHED, streamName_).sendToTarget();
     }
 
     public Handler getHandler() {
@@ -288,6 +296,8 @@ public class StreamFetcher extends HandlerThread {
     @SuppressLint("HandlerLeak")
     @Override
     protected void onLooperPrepared() {
+        Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                "OnLooperPrepared called");
         handler_ = new Handler() {
             @Override
             public void handleMessage(@NonNull Message msg) {
@@ -309,6 +319,7 @@ public class StreamFetcher extends HandlerThread {
                 }
             }
         };
+        uiHandler_.obtainMessage(MainActivity.MSG_STREAM_FETCHER_INITIALIZED).sendToTarget();
     }
 
     private class CwndCalculator {

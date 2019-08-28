@@ -1,15 +1,19 @@
 
 package com.example.audio_consumer;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import com.example.audio_consumer.Helpers.Helpers;
 import com.example.audio_consumer.stream_fetcher.NetworkThread;
 import com.example.audio_consumer.stream_fetcher.StreamFetcher;
 import com.example.audio_consumer.stream_fetcher.StreamPlayer;
@@ -20,6 +24,12 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
 
+    Handler handler_;
+
+    // Messages
+    public static final int MSG_STREAM_FETCHER_INITIALIZED = 0;
+    public static final int MSG_STREAM_FETCHER_FINISHED = 1;
+
     Button startFetchingButton_;
     Button generateRandomIdButton_;
     TextView streamFetchStatistics_;
@@ -28,7 +38,6 @@ public class MainActivity extends AppCompatActivity {
     EditText audioBundleSizeInput_;
 
     StreamFetcher currentStreamFetcher_;
-    Name currentStreamName_;
     NetworkThread networkThread_;
     StreamPlayer streamPlayer_;
 
@@ -36,6 +45,35 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        handler_ = new Handler(getMainLooper()) {
+            @Override
+            public void handleMessage(@NonNull Message msg) {
+                switch (msg.what) {
+                    case MSG_STREAM_FETCHER_INITIALIZED:
+                        Log.d(TAG, "Handler for stream fetcher for stream " +
+                                currentStreamFetcher_.getStreamName().toString() +
+                                " successfully initialized.");
+
+                        boolean ret = currentStreamFetcher_.requestStartStreamFetch();
+                        Log.d(TAG, (ret ? "Successfully requested stream fetch start" : "Failed to request stream fetch start") +
+                                " for name: " + currentStreamFetcher_.getStreamName().toString());
+
+                        startFetchingButton_.setEnabled(false);
+                        if (!ret) currentStreamFetcher_.requestClose();
+                        break;
+                    case MSG_STREAM_FETCHER_FINISHED:
+                        Name streamName = (Name) msg.obj;
+                        Log.d(TAG, System.currentTimeMillis() + ": " +
+                                "fetching of stream " + streamName.toString() + " finished");
+                        currentStreamFetcher_ = null;
+                        startFetchingButton_.setEnabled(true);
+                        break;
+                    default:
+                        throw new IllegalStateException();
+                }
+            }
+        };
 
         streamFetchStatistics_ = (TextView) findViewById(R.id.stream_fetch_statistics);
         streamNameInput_ = (EditText) findViewById(R.id.stream_name_input);
@@ -54,28 +92,16 @@ public class MainActivity extends AppCompatActivity {
         startFetchingButton_.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                currentStreamName_ = new Name(getString(R.string.network_prefix))
-                        .append(streamNameInput_.getText().toString())
-                        .append(streamIdInput_.getText().toString())
-                        .appendVersion(0);
-                currentStreamFetcher_ = new StreamFetcher(currentStreamName_,
-                        Helpers.calculateMsPerSeg(8000, Long.parseLong(audioBundleSizeInput_.getText().toString())),
-                        networkThread_.getHandler());
+                currentStreamFetcher_ = new StreamFetcher(
+                        new Name(getString(R.string.network_prefix))
+                                .append(streamNameInput_.getText().toString())
+                                .append(streamIdInput_.getText().toString())
+                                .appendVersion(0),
+                        Helpers.calculateMsPerSeg(8000,
+                                Long.parseLong(audioBundleSizeInput_.getText().toString())),
+                        networkThread_.getHandler(),
+                        handler_);
                 currentStreamFetcher_.start();
-                Log.d(TAG, "After current stream fetcher start");
-                while (currentStreamFetcher_.getHandler() == null) {} // block until stream fetcher's handler is initialized
-                Log.d(TAG, "After current stream fetcher handler initialized");
-
-                currentStreamName_ = new Name(getString(R.string.network_prefix))
-                        .append(streamNameInput_.getText().toString())
-                        .append(streamIdInput_.getText().toString())
-                        .appendVersion(0);
-
-                Log.d(TAG, "Handler for stream fetcher for stream " + currentStreamName_.toString() + " successfully initialized.");
-
-                boolean ret = currentStreamFetcher_.requestStartStreamFetch();
-                Log.d(TAG, (ret ? "Successfully requested stream fetch start" : "Failed to request stream fetch start") +
-                        " for name: " + currentStreamName_.toUri());
             }
         });
 

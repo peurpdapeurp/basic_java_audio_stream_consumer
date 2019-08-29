@@ -1,4 +1,4 @@
-package com.example.audio_consumer.stream_fetcher.exoplayer_customization;
+package com.example.audio_consumer.stream_player.exoplayer_customization;
 
 import com.google.android.exoplayer2.extractor.Extractor;
 import com.google.android.exoplayer2.extractor.ExtractorsFactory;

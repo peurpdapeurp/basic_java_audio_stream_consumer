@@ -1,8 +1,6 @@
-package com.example.audio_consumer.Helpers;
+package com.example.audio_consumer.Utils;
 
 import android.util.Log;
-
-import com.example.audio_consumer.Constants;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -18,15 +16,6 @@ public class Helpers {
     public static long getRandomLongBetweenRange(double min, double max){
         long x = (long) ((Math.random()*((max-min)+1))+min);
         return x;
-    }
-
-    /**
-     * @param producerSamplingRate Audio sampling rate of producer (samples per second).
-     * @param framesPerSegment ADTS frames per segment.
-     */
-    public static long calculateMsPerSeg(long producerSamplingRate, long framesPerSegment) {
-        return (framesPerSegment * Constants.SAMPLES_PER_ADTS_FRAME *
-                Constants.MILLISECONDS_PER_SECOND) / producerSamplingRate;
     }
 
     // https://stackoverflow.com/questions/4485128/how-do-i-convert-long-to-byte-and-back-in-java

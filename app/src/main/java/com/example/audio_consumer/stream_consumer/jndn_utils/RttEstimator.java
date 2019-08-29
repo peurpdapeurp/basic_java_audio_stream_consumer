@@ -1,4 +1,4 @@
-package com.example.audio_consumer.stream_fetcher;
+package com.example.audio_consumer.stream_consumer.jndn_utils;
 
 /**
  * Copyright (C) 2015-2019 Regents of the University of California.
@@ -86,7 +86,7 @@ public class RttEstimator {
      * NOTE: Do not call this function with RTT samples from retransmitted Interests
      *       (per Karn's algorithm).
      */
-    void
+    public void
     addMeasurement(double rtt, int nExpectedSamples) {
         if (nRttSamples_ == 0) { // first measurement
             sRtt_ = rtt;
@@ -127,7 +127,7 @@ public class RttEstimator {
     /**
      * Returns the estimated RTO value.
      */
-    double
+    public double
     getEstimatedRto()
     {
         return rto_;

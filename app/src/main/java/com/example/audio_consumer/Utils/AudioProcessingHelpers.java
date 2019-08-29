@@ -1,4 +1,4 @@
-package com.example.audio_consumer;
+package com.example.audio_consumer.Utils;
 
 import android.content.Context;
 import android.media.AudioFormat;
@@ -7,8 +7,7 @@ import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
-import com.example.audio_consumer.Helpers.Helpers;
-import com.example.audio_consumer.stream_fetcher.exoplayer_customization.InputStreamDataSource;
+import com.example.audio_consumer.stream_player.exoplayer_customization.InputStreamDataSource;
 import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.ExoPlayerFactory;
 import com.google.android.exoplayer2.Player;
@@ -32,6 +31,26 @@ public class AudioProcessingHelpers {
     private static final String TAG = "AudioProcessingHelpers";
 
     public static final int AAC_ADTS_SAMPLES_PER_FRAME = 1024;
+
+    public static boolean checkStreamPlayerAdtsParser() {
+//        byte[] adtsFramesTestBuffer = AudioProcessingHelpers.getByteArraysAsSingleArray(TestFrames.MUSIC_ADTS_FRAME_BUFFERS);
+//        ArrayList<byte[]> adtsFramesArrayList = StreamPlayerBuffer.AdtsFrameParser.parseAdtsFrames(adtsFramesTestBuffer);
+//        if (adtsFramesArrayList.size() != TestFrames.MUSIC_ADTS_FRAME_BUFFERS.length) {
+//            Log.e(TAG, "MISMATCH OF NUMBER OF ADTS PARSED FRAMES AND NUMBER OF ORIGINAL FRAMES: " + "\n" +
+//                    "NUMBER OF PARSED FRAMES: " + adtsFramesArrayList.size() + "\n" +
+//                    "NUMBER OF ORIGINAL FRAMES: " + TestFrames.MUSIC_ADTS_FRAME_BUFFERS.length);
+//            return false;
+//        }
+//        for (int i = 0; i < adtsFramesArrayList.size(); i++) {
+//            if (!Arrays.equals(adtsFramesArrayList.get(i), TestFrames.MUSIC_ADTS_FRAME_BUFFERS[i])) {
+//                Log.e(TAG, "MISMATCH OF ADTS PARSED FRAMES AND ORIGINAL FRAMES: " + "\n" +
+//                        "ADTS PARSED FRAME : " + Helpers.bytesToHex(adtsFramesArrayList.get(i)) + "\n" +
+//                        "ORIGINAL FRAME: " + TestFrames.MUSIC_ADTS_FRAME_BUFFERS[i]);
+//                return false;
+//            }
+//        }
+        return true;
+    }
 
     public static long getPresentationTime(long frameOffset, long samplingRate, long samplesPerFrame) {
         return ((samplesPerFrame * frameOffset) / samplingRate) * 1000000;

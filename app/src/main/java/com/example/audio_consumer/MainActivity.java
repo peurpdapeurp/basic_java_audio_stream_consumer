@@ -1,9 +1,6 @@
 
 package com.example.audio_consumer;
 
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
-
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -13,10 +10,13 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
-import com.example.audio_consumer.Helpers.Helpers;
-import com.example.audio_consumer.stream_fetcher.NetworkThread;
-import com.example.audio_consumer.stream_fetcher.StreamFetcher;
-import com.example.audio_consumer.stream_fetcher.StreamPlayer;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.example.audio_consumer.stream_player.StreamPlayer;
+import com.example.audio_consumer.Utils.Helpers;
+import com.example.audio_consumer.Utils.Pipe;
+import com.example.audio_consumer.stream_consumer.StreamConsumer;
 
 import net.named_data.jndn.Name;
 
@@ -24,11 +24,9 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
 
-    Handler handler_;
-
     // Messages
-    public static final int MSG_STREAM_FETCHER_INITIALIZED = 0;
-    public static final int MSG_STREAM_FETCHER_FINISHED = 1;
+    public static final int MSG_STREAM_CONSUMER_INITIALIZED = 0;
+    public static final int MSG_STREAM_CONSUMER_FINISHED = 1;
 
     Button startFetchingButton_;
     Button generateRandomIdButton_;
@@ -37,40 +35,43 @@ public class MainActivity extends AppCompatActivity {
     EditText streamIdInput_;
     EditText audioBundleSizeInput_;
 
-    StreamFetcher currentStreamFetcher_;
-    NetworkThread networkThread_;
+    StreamConsumer streamConsumer_;
     StreamPlayer streamPlayer_;
+    Pipe transferPipe_; // for the transfer of audio data from streamConsumer_ to streamPlayer_
+    Handler handler_;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        transferPipe_ = new Pipe();
+        streamPlayer_ = new StreamPlayer(this, transferPipe_.getInputStream());
+
         handler_ = new Handler(getMainLooper()) {
             @Override
             public void handleMessage(@NonNull Message msg) {
                 switch (msg.what) {
-                    case MSG_STREAM_FETCHER_INITIALIZED:
-                        Log.d(TAG, "Handler for stream fetcher for stream " +
-                                currentStreamFetcher_.getStreamName().toString() +
-                                " successfully initialized.");
-
-                        boolean ret = currentStreamFetcher_.requestStartStreamFetch();
-                        Log.d(TAG, (ret ? "Successfully requested stream fetch start" : "Failed to request stream fetch start") +
-                                " for name: " + currentStreamFetcher_.getStreamName().toString());
-
-                        startFetchingButton_.setEnabled(false);
-                        if (!ret) currentStreamFetcher_.requestClose();
+                    case MSG_STREAM_CONSUMER_INITIALIZED: {
+                        Name streamName = (Name) msg.obj;
+                        Log.d(TAG, System.currentTimeMillis() + ": " +
+                                "fetching of stream " + streamName.toString() + " started");
+                        streamConsumer_.getHandler()
+                                .obtainMessage(StreamConsumer.MSG_FETCH_START)
+                                .sendToTarget();
                         break;
-                    case MSG_STREAM_FETCHER_FINISHED:
+                    }
+                    case MSG_STREAM_CONSUMER_FINISHED: {
                         Name streamName = (Name) msg.obj;
                         Log.d(TAG, System.currentTimeMillis() + ": " +
                                 "fetching of stream " + streamName.toString() + " finished");
-                        currentStreamFetcher_ = null;
+                        streamConsumer_ = null;
                         startFetchingButton_.setEnabled(true);
                         break;
-                    default:
+                    }
+                    default: {
                         throw new IllegalStateException();
+                    }
                 }
             }
         };
@@ -80,28 +81,20 @@ public class MainActivity extends AppCompatActivity {
         streamIdInput_ = (EditText) findViewById(R.id.stream_id_input);
         audioBundleSizeInput_ = (EditText) findViewById(R.id.audio_bundle_size_input);
 
-        streamPlayer_ = new StreamPlayer(this);
-        streamPlayer_.start();
-        while (streamPlayer_.getHandler() == null) {} // block until stream player's handler is initialized
-
-        networkThread_ = new NetworkThread();
-        networkThread_.start();
-        while (networkThread_.getHandler() == null) {} // block until network thread's handler is initialized
-
         startFetchingButton_ = (Button) findViewById(R.id.start_fetch_button);
         startFetchingButton_.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                currentStreamFetcher_ = new StreamFetcher(
+                streamConsumer_ = new StreamConsumer(
                         new Name(getString(R.string.network_prefix))
                                 .append(streamNameInput_.getText().toString())
                                 .append(streamIdInput_.getText().toString())
                                 .appendVersion(0),
-                        Helpers.calculateMsPerSeg(8000,
-                                Long.parseLong(audioBundleSizeInput_.getText().toString())),
-                        networkThread_.getHandler(),
+                        8000,
+                        Long.parseLong(audioBundleSizeInput_.getText().toString()),
+                        transferPipe_.getOutputStream(),
                         handler_);
-                currentStreamFetcher_.start();
+                streamConsumer_.start();
             }
         });
 
@@ -119,10 +112,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
 
-        streamPlayer_.stop();
-        if (currentStreamFetcher_ != null) {
-            currentStreamFetcher_.requestClose();
-        }
-        networkThread_.close();
+        if (streamConsumer_ != null)
+            streamConsumer_.close();
     }
 }

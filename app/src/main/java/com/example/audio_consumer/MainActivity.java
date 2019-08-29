@@ -26,7 +26,8 @@ public class MainActivity extends AppCompatActivity {
 
     // Messages
     public static final int MSG_STREAM_CONSUMER_INITIALIZED = 0;
-    public static final int MSG_STREAM_CONSUMER_FINISHED = 1;
+    public static final int MSG_STREAM_CONSUMER_FETCH_COMPLETE = 1;
+    public static final int MSG_STREAM_CONSUMER_PLAY_COMPLETE = 2;
 
     Button startFetchingButton_;
     Button generateRandomIdButton_;
@@ -59,12 +60,21 @@ public class MainActivity extends AppCompatActivity {
                         streamConsumer_.getHandler()
                                 .obtainMessage(StreamConsumer.MSG_FETCH_START)
                                 .sendToTarget();
+                        streamConsumer_.getHandler()
+                                .obtainMessage(StreamConsumer.MSG_PLAY_START)
+                                .sendToTarget();
                         break;
                     }
-                    case MSG_STREAM_CONSUMER_FINISHED: {
+                    case MSG_STREAM_CONSUMER_FETCH_COMPLETE: {
                         Name streamName = (Name) msg.obj;
                         Log.d(TAG, System.currentTimeMillis() + ": " +
                                 "fetching of stream " + streamName.toString() + " finished");
+                        break;
+                    }
+                    case MSG_STREAM_CONSUMER_PLAY_COMPLETE: {
+                        Name streamName = (Name) msg.obj;
+                        Log.d(TAG, System.currentTimeMillis() + ": " +
+                                "playing of stream " + streamName.toString() + " finished");
                         streamConsumer_ = null;
                         startFetchingButton_.setEnabled(true);
                         break;

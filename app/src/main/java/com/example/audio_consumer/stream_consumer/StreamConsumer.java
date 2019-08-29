@@ -90,7 +90,7 @@ public class StreamConsumer extends HandlerThread {
     private void doSomeWork() {
         network_.doSomeWork();
         streamFetcher_.doSomeWork();
-        // streamPlayerBuffer_.doSomeWork();
+        streamPlayerBuffer_.doSomeWork();
         scheduleNextWork(SystemClock.uptimeMillis(), PROCESSING_INTERVAL_MS);
     }
 
@@ -411,8 +411,6 @@ public class StreamConsumer extends HandlerThread {
                 return;
             }
 
-//            streamPlayerBuffer_.processAdtsFrames(audioPacket.getContent().getImmutableArray(), segNum);
-
             if (segSendTimes_.containsKey(segNum)) {
                 long rtt = receiveTime - segSendTimes_.get(segNum);
                 Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
@@ -441,6 +439,7 @@ public class StreamConsumer extends HandlerThread {
                 streamFinalBlockId_ = finalBlockId;
             }
             else {
+                streamPlayerBuffer_.processAdtsFrames(audioPacket.getContent().getImmutableArray(), segNum);
                 Name.Component finalBlockIdComponent = audioPacket.getMetaInfo().getFinalBlockId();
                 if (finalBlockIdComponent != null) {
                     try {
@@ -544,11 +543,14 @@ public class StreamConsumer extends HandlerThread {
 
         public void doSomeWork() {
             if (closed_) return;
-            Log.d(TAG, getTimeSinceStreamFetchStart() + " : " +
-                    "do some work");
         }
 
         public void processAdtsFrames(byte[] frames, long segNum) {
+            Log.d(TAG, getTimeSinceStreamFetchStart() + " : " +
+                    "Processing adts frames (" +
+                    "length " + frames.length + ", " +
+                    "seg num " + segNum +
+                    ")");
             ArrayList<byte[]> parsedFrames = parseAdtsFrames(frames);
             int parsedFramesLength = parsedFrames.size();
             for (int i = 0; i < parsedFramesLength; i++) {

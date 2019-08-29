@@ -526,10 +526,14 @@ public class StreamConsumer extends HandlerThread {
 
         private final static String TAG = "StreamConsumer_PlayerBuffer";
 
+        // Private constants
+        private static final int FINAL_FRAME_NUM_UNKNOWN = -1;
+
         private OutputStream os_;
         private long jitterBufferDelay_;
         private boolean closed_ = false;
         private StreamConsumer streamConsumer_;
+        private long finalFrameNum_ = FINAL_FRAME_NUM_UNKNOWN;
 
         public StreamPlayerBuffer(StreamConsumer streamConsumer, OutputStream os) {
             streamConsumer_ = streamConsumer;
@@ -558,6 +562,17 @@ public class StreamConsumer extends HandlerThread {
                 long frameNum = (segNum * streamFetcher_.getFramesPerSegment()) + i;
                 Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
                         "got frame " + frameNum);
+            }
+            // to detect end of stream, assume that every batch of frames besides the batch of
+            // frames associated with the final segment of a stream will have exactly framesPerSegment_
+            // frames in it
+            if (parsedFrames.size() < framesPerSegment_) {
+                finalFrameNum_ = (segNum * framesPerSegment_) + parsedFrames.size() - 1;
+                Log.d(TAG, getTimeSinceStreamFetchStart() + ": " +
+                        "detected end of stream (" +
+                        "final seg num " + segNum + ", " +
+                        "final frame num " + finalFrameNum_ +
+                        ")");
             }
         }
 

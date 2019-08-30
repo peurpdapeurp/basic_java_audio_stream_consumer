@@ -23,7 +23,9 @@
             android:id="@+id/stream_name_input_label"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Stream name:" />
+            android:text="Stream name:"
+            android:textColor="#000000"
+            android:textStyle="bold" />
 
         <EditText
             android:id="@+id/stream_name_input"
@@ -47,7 +49,9 @@
                     android:id="@+id/stream_id_input_label"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Stream id:" />
+                    android:text="Stream id:"
+                    android:textColor="#000000"
+                    android:textStyle="bold" />
 
                 <EditText
                     android:id="@+id/stream_id_input"
@@ -77,18 +81,75 @@
                 android:orientation="vertical">
 
                 <TextView
-                    android:id="@+id/audio_bundle_size_input_label"
+                    android:id="@+id/textView"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="ADTS Frames per Packet:" />
+                    android:text="Stream Consumer Options"
+                    android:textColor="#000000"
+                    android:textStyle="bold" />
 
-                <EditText
-                    android:id="@+id/audio_bundle_size_input"
+                <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ems="10"
-                    android:inputType="textPersonName"
-                    android:text="1" />
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/frames_per_segment_input_label"
+                        android:layout_width="264dp"
+                        android:layout_height="wrap_content"
+                        android:text="Frames per segment:"
+                        android:textColor="#000000" />
+
+                    <EditText
+                        android:id="@+id/frames_per_segment_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ems="10"
+                        android:inputType="textPersonName"
+                        android:text="1" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/jitter_buffer_size_input_label"
+                        android:layout_width="264dp"
+                        android:layout_height="wrap_content"
+                        android:text="Jitter buffer size (# frames):"
+                        android:textColor="#000000" />
+
+                    <EditText
+                        android:id="@+id/jitter_buffer_size_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ems="10"
+                        android:inputType="textPersonName"
+                        android:text="5" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/producer_sampling_rate_input_label"
+                        android:layout_width="264dp"
+                        android:layout_height="wrap_content"
+                        android:text="Producer sampling rate (samples/sec):"
+                        android:textColor="#000000" />
+
+                    <EditText
+                        android:id="@+id/producer_sampling_rate_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ems="10"
+                        android:inputType="textPersonName"
+                        android:text="8000" />
+                </LinearLayout>
 
             </LinearLayout>
 
@@ -97,7 +158,7 @@
         <TextView
             android:id="@+id/stream_fetch_statistics"
             android:layout_width="match_parent"
-            android:layout_height="305dp" />
+            android:layout_height="204dp" />
 
         <Button
             android:id="@+id/start_fetch_button"

@@ -35,7 +35,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.PriorityQueue;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class StreamConsumer extends HandlerThread {
 
@@ -56,25 +55,39 @@ public class StreamConsumer extends HandlerThread {
     private boolean streamPlayStartCalled_ = false;
     private Handler uiHandler_;
     private Name streamName_;
-    private long producerSamplingRate_;
-    private long framesPerSegment_;
     private OutputStream os_;
     private Handler handler_;
     private boolean streamConsumerClosed_ = false;
+    private Options options_;
+
+    public static class Options {
+        public Options(long framesPerSegment, long jitterBufferSize, long producerSamplingRate) {
+            this.framesPerSegment = framesPerSegment;
+            this.jitterBufferSize = jitterBufferSize;
+            this.producerSamplingRate = producerSamplingRate;
+        }
+        long framesPerSegment; // # of frames per segment
+        long jitterBufferSize; // # of initial frames in StreamPlayerBuffer's jitter buffer before playback begins
+        long producerSamplingRate; // samples/sec from producer
+    }
 
     private long getLogTime() {
         return System.currentTimeMillis();
     }
 
-    public StreamConsumer(Name streamName, long producerSamplingRate, long framesPerSegment,
-                          OutputStream os,
-                          Handler uiHandler) {
+    public StreamConsumer(Name streamName, OutputStream os, Handler uiHandler,
+                          Options options) {
         super("StreamConsumer");
         streamName_ = streamName;
-        producerSamplingRate_ = producerSamplingRate;
-        framesPerSegment_ = framesPerSegment;
+        options_ = options;
         os_ = os;
         uiHandler_ = uiHandler;
+        Log.d(TAG, getLogTime() + "; " +
+                "Initialized (" +
+                "framesPerSegment " + options_.framesPerSegment + ", " +
+                "jitterBufferSize " + options_.jitterBufferSize + ", " +
+                "producerSamplingRate " + options_.producerSamplingRate +
+                ")");
     }
 
     public void close() {
@@ -324,25 +337,21 @@ public class StreamConsumer extends HandlerThread {
             return System.currentTimeMillis() - streamFetchStartTime_;
         }
 
-        /**
-         * @param producerSamplingRate Audio sampling rate of producer (samples per second).
-         * @param framesPerSegment ADTS frames per segment.
-         */
-        private long calculateMsPerSeg(long producerSamplingRate, long framesPerSegment) {
-            return (framesPerSegment * Constants.SAMPLES_PER_ADTS_FRAME *
-                    Constants.MILLISECONDS_PER_SECOND) / producerSamplingRate;
-        }
-
         private StreamFetcher(Name streamName, Looper streamConsumerLooper) {
             cwndCalculator_ = new CwndCalculator();
             retransmissionQueue_ = new PriorityQueue<>();
             streamName_ = streamName;
             segSendTimes_ = new HashMap<>();
             rtoTokens_ = new HashMap<>();
-            rttEstimator_ = new RttEstimator();
-            msPerSegNum_ = calculateMsPerSeg(producerSamplingRate_, framesPerSegment_);
+            long streamPlayerBufferJitterDelay = options_.jitterBufferSize * calculateMsPerFrame(options_.producerSamplingRate);
+            rttEstimator_ = new RttEstimator(new RttEstimator.Options(streamPlayerBufferJitterDelay, streamPlayerBufferJitterDelay));
+            msPerSegNum_ = calculateMsPerSeg(options_.producerSamplingRate, options_.framesPerSegment);
             streamConsumerHandler_ = new Handler(streamConsumerLooper);
-            Log.d(TAG, "Generating segment numbers to fetch at " + msPerSegNum_ + " per segment number.");
+            Log.d(TAG, getLogTime() + "; " +
+                    "Initialized (" +
+                    "maxRto / initialRto " + streamPlayerBufferJitterDelay + ", " +
+                    "ms per seg num " + msPerSegNum_ +
+                    ")");
         }
 
         private void setStreamFetchStartTime(long streamFetchStartTime) {
@@ -408,7 +417,7 @@ public class StreamConsumer extends HandlerThread {
             interestToSend.getName().appendSegment(segNum);
             long rto = (long) rttEstimator_.getEstimatedRto();
             // if playback deadline for first frame of segment is known, set interest lifetime to expire at playback deadline
-            long segFirstFrameNum = framesPerSegment_ * segNum;
+            long segFirstFrameNum = options_.framesPerSegment * segNum;
             long playbackDeadline = streamPlayerBuffer_.getPlaybackDeadline(segFirstFrameNum);
             long transmitTime = System.currentTimeMillis();
             if (playbackDeadline != StreamPlayerBuffer.PLAYBACK_DEADLINE_UNKNOWN && transmitTime + rto > playbackDeadline) {
@@ -592,7 +601,6 @@ public class StreamConsumer extends HandlerThread {
         // Private constants
         private static final int FINAL_FRAME_NUM_UNKNOWN = -1;
         private static final int STREAM_PLAY_START_TIME_UNKNOWN = -1;
-        private static final int JITTER_BUFFER_FRAMES = 5; // minimal initial number of frames in jitter buffer before playback begins
 
         private class Frame implements Comparable<Frame> {
             long frameNum;
@@ -639,8 +647,13 @@ public class StreamConsumer extends HandlerThread {
             jitterBuffer_ = new PriorityQueue<>();
             streamConsumer_ = streamConsumer;
             os_ = os;
-            jitterBufferDelay_ = JITTER_BUFFER_FRAMES * calculateMsPerFrame(producerSamplingRate_);
-            msPerFrame_ = calculateMsPerFrame(producerSamplingRate_);
+            jitterBufferDelay_ = options_.jitterBufferSize * calculateMsPerFrame(options_.producerSamplingRate);
+            msPerFrame_ = calculateMsPerFrame(options_.producerSamplingRate);
+            Log.d(TAG, getLogTime() + "; " +
+                    "Initialized (" +
+                    "jitterBufferDelay_ " + jitterBufferDelay_ + ", " +
+                    "ms per frame " + msPerFrame_ +
+                    ")");
         }
 
         private void setStreamPlayStartTime(long streamPlayStartTime) {
@@ -721,7 +734,7 @@ public class StreamConsumer extends HandlerThread {
             int parsedFramesLength = parsedFrames.size();
             for (int i = 0; i < parsedFramesLength; i++) {
                 byte[] frameData = parsedFrames.get(i);
-                long frameNum = (segNum * framesPerSegment_) + i;
+                long frameNum = (segNum * options_.framesPerSegment) + i;
                 Log.d(TAG, getLogTime() + ": " +
                         "got frame " + frameNum);
                 jitterBuffer_.add(new Frame(frameNum, frameData));
@@ -729,8 +742,8 @@ public class StreamConsumer extends HandlerThread {
             // to detect end of stream, assume that every batch of frames besides the batch of
             // frames associated with the final segment of a stream will have exactly framesPerSegment_
             // frames in it
-            if (parsedFrames.size() < framesPerSegment_) {
-                finalFrameNum_ = (segNum * framesPerSegment_) + parsedFrames.size() - 1;
+            if (parsedFrames.size() < options_.framesPerSegment) {
+                finalFrameNum_ = (segNum * options_.framesPerSegment) + parsedFrames.size() - 1;
                 Log.d(TAG, getLogTime() + ": " +
                         "detected end of stream (" +
                         "final seg num " + segNum + ", " +
@@ -757,7 +770,7 @@ public class StreamConsumer extends HandlerThread {
             if (streamPlayStartTime_ == STREAM_PLAY_START_TIME_UNKNOWN) {
                 return PLAYBACK_DEADLINE_UNKNOWN;
             }
-            long framePlayTimeOffset = (Constants.SAMPLES_PER_ADTS_FRAME * Constants.MILLISECONDS_PER_SECOND * frameNum) / producerSamplingRate_;
+            long framePlayTimeOffset = (Constants.SAMPLES_PER_ADTS_FRAME * Constants.MILLISECONDS_PER_SECOND * frameNum) / options_.producerSamplingRate;
             long deadline = streamPlayStartTime_ + jitterBufferDelay_ + framePlayTimeOffset;
             Log.d(TAG, getLogTime() + ": " +
                     "calculated deadline (" +
@@ -767,14 +780,6 @@ public class StreamConsumer extends HandlerThread {
                     "deadline " + deadline +
                     ")");
             return deadline;
-        }
-
-        /**
-         * @param producerSamplingRate Audio sampling rate of producer (samples per second).
-         */
-        private long calculateMsPerFrame(long producerSamplingRate) {
-            return (Constants.SAMPLES_PER_ADTS_FRAME *
-                    Constants.MILLISECONDS_PER_SECOND) / producerSamplingRate;
         }
 
         private byte[] getSilentFrame() {
@@ -795,5 +800,22 @@ public class StreamConsumer extends HandlerThread {
             };
         }
 
+    }
+
+    /**
+     * @param producerSamplingRate Audio sampling rate of producer (samples per second).
+     */
+    private long calculateMsPerFrame(long producerSamplingRate) {
+        return (Constants.SAMPLES_PER_ADTS_FRAME *
+                Constants.MILLISECONDS_PER_SECOND) / producerSamplingRate;
+    }
+
+    /**
+     * @param producerSamplingRate Audio sampling rate of producer (samples per second).
+     * @param framesPerSegment ADTS frames per segment.
+     */
+    private long calculateMsPerSeg(long producerSamplingRate, long framesPerSegment) {
+        return (framesPerSegment * Constants.SAMPLES_PER_ADTS_FRAME *
+                Constants.MILLISECONDS_PER_SECOND) / producerSamplingRate;
     }
 }

@@ -32,6 +32,15 @@ public class RttEstimator {
 
     public static class Options {
 
+        public Options() {
+
+        }
+
+        public Options(double maxRto, double initialRto) {
+            this.maxRto = maxRto;
+            this.initialRto = initialRto;
+        }
+
         /** weight of exponential moving average for smoothed RTT
          */
         public double alpha = 0.125;
@@ -71,7 +80,7 @@ public class RttEstimator {
      * Configures the RTT Estimator
      * @param options_ Parameters for configuration.
      */
-    RttEstimator(Options options_) {
+    public RttEstimator(Options options_) {
         this.options_ = options_;
         rto_ = options_.initialRto;
     }

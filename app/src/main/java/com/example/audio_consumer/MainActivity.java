@@ -34,7 +34,9 @@ public class MainActivity extends AppCompatActivity {
     TextView streamFetchStatistics_;
     EditText streamNameInput_;
     EditText streamIdInput_;
-    EditText audioBundleSizeInput_;
+    EditText framesPerSegmentInput_;
+    EditText jitterBufferSizeInput_;
+    EditText producerSamplingRateInput_;
 
     StreamConsumer streamConsumer_;
     StreamPlayer streamPlayer_;
@@ -89,7 +91,9 @@ public class MainActivity extends AppCompatActivity {
         streamFetchStatistics_ = (TextView) findViewById(R.id.stream_fetch_statistics);
         streamNameInput_ = (EditText) findViewById(R.id.stream_name_input);
         streamIdInput_ = (EditText) findViewById(R.id.stream_id_input);
-        audioBundleSizeInput_ = (EditText) findViewById(R.id.audio_bundle_size_input);
+        framesPerSegmentInput_ = (EditText) findViewById(R.id.frames_per_segment_input);
+        jitterBufferSizeInput_ = (EditText) findViewById(R.id.jitter_buffer_size_input);
+        producerSamplingRateInput_ = (EditText) findViewById(R.id.producer_sampling_rate_input);
 
         startFetchingButton_ = (Button) findViewById(R.id.start_fetch_button);
         startFetchingButton_.setOnClickListener(new View.OnClickListener() {
@@ -100,10 +104,11 @@ public class MainActivity extends AppCompatActivity {
                                 .append(streamNameInput_.getText().toString())
                                 .append(streamIdInput_.getText().toString())
                                 .appendVersion(0),
-                        8000,
-                        Long.parseLong(audioBundleSizeInput_.getText().toString()),
                         transferPipe_.getOutputStream(),
-                        handler_);
+                        handler_,
+                        new StreamConsumer.Options(Long.parseLong(framesPerSegmentInput_.getText().toString()),
+                                Long.parseLong(jitterBufferSizeInput_.getText().toString()),
+                                Long.parseLong(producerSamplingRateInput_.getText().toString())));
                 streamConsumer_.start();
             }
         });

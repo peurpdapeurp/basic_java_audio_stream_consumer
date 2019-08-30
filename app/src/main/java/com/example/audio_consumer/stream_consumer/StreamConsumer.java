@@ -596,8 +596,11 @@ public class StreamConsumer extends HandlerThread {
         private boolean closed_ = false;
         private StreamConsumer streamConsumer_;
         private long highestFrameNumPlayed_ = 0;
+        private long highestFrameNumPlayedDeadline_;
         private long finalFrameNum_ = FINAL_FRAME_NUM_UNKNOWN;
+        private long finalFrameNumDeadline_;
         private long streamPlayStartTime_ = STREAM_PLAY_START_TIME_UNKNOWN;
+        private long msPerFrame_;
 
         private void printState() {
             Log.d(TAG, getLogTime() + ": " +
@@ -612,6 +615,8 @@ public class StreamConsumer extends HandlerThread {
             streamConsumer_ = streamConsumer;
             os_ = os;
             jitterBufferDelay_ = JITTER_BUFFER_FRAMES * calculateMsPerFrame(producerSamplingRate_);
+            msPerFrame_ = calculateMsPerFrame(producerSamplingRate_);
+            highestFrameNumPlayedDeadline_ = jitterBufferDelay_;
         }
 
         private void setStreamPlayStartTime(long streamPlayStartTime) {
@@ -630,17 +635,23 @@ public class StreamConsumer extends HandlerThread {
             if (streamPlayStartTime_ == STREAM_PLAY_START_TIME_UNKNOWN) return;
             if (closed_) return;
 
-            if (finalFrameNum_ == FINAL_FRAME_NUM_UNKNOWN) return;
-            if (System.currentTimeMillis() > getPlaybackDeadline(highestFrameNumPlayed_)) {
+            if (System.currentTimeMillis() > highestFrameNumPlayedDeadline_) {
                 Log.d(TAG, getLogTime() + ": " +
-                        "reached playback deadline for frame " + highestFrameNumPlayed_
+                        "reached playback deadline for frame " + highestFrameNumPlayed_ + " (" +
+                        "playback deadline " + highestFrameNumPlayedDeadline_
+                        + ")"
                 );
                 highestFrameNumPlayed_++;
+                highestFrameNumPlayedDeadline_ += msPerFrame_;
             }
-            if (System.currentTimeMillis() > getPlaybackDeadline(finalFrameNum_)) {
+
+            if (finalFrameNum_ == FINAL_FRAME_NUM_UNKNOWN) { return; }
+
+            if (System.currentTimeMillis() > finalFrameNumDeadline_) {
                 Log.d(TAG, getLogTime() + ": " +
                         "finished playing (" +
-                        "playback deadline of final frame num " + getPlaybackDeadline(finalFrameNum_) +
+                        "final frame num " + finalFrameNum_  + ", " +
+                        "playback deadline " + finalFrameNumDeadline_ +
                         ")");
                 printState();
                 close();
@@ -672,6 +683,7 @@ public class StreamConsumer extends HandlerThread {
                         "final seg num " + segNum + ", " +
                         "final frame num " + finalFrameNum_ +
                         ")");
+                finalFrameNumDeadline_ = getPlaybackDeadline(finalFrameNum_);
             }
         }
 
@@ -693,7 +705,15 @@ public class StreamConsumer extends HandlerThread {
                 return PLAYBACK_DEADLINE_UNKNOWN;
             }
             long framePlayTimeOffset = (Constants.SAMPLES_PER_ADTS_FRAME * Constants.MILLISECONDS_PER_SECOND * frameNum) / producerSamplingRate_;
-            return streamPlayStartTime_ + jitterBufferDelay_ + framePlayTimeOffset;
+            long deadline = streamPlayStartTime_ + jitterBufferDelay_ + framePlayTimeOffset;
+            Log.d(TAG, getLogTime() + ": " +
+                    "calculated deadline (" +
+                    "frame num " + frameNum + ", " +
+                    "framePlayTimeOffset " + framePlayTimeOffset + ", " +
+                    "jitterBufferDelay " + jitterBufferDelay_ + ", " +
+                    "deadline " + deadline +
+                    ")");
+            return deadline;
         }
 
         /**

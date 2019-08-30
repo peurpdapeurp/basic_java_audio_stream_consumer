@@ -3,6 +3,7 @@ package com.example.audio_consumer.stream_consumer;
 import android.annotation.SuppressLint;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Looper;
 import android.os.Message;
 import android.os.SystemClock;
 import android.util.Log;
@@ -143,7 +144,7 @@ public class StreamConsumer extends HandlerThread {
             }
         };
         network_ = new Network();
-        streamFetcher_ = new StreamFetcher(streamName_);
+        streamFetcher_ = new StreamFetcher(streamName_, Looper.getMainLooper());
         streamPlayerBuffer_ = new StreamPlayerBuffer(this, os_);
         uiHandler_
                 .obtainMessage(MainActivity.MSG_STREAM_CONSUMER_INITIALIZED, streamName_)
@@ -179,6 +180,7 @@ public class StreamConsumer extends HandlerThread {
         }
 
         private void close() {
+            if (closed_) return;
             closed_ = true;
         }
 
@@ -282,6 +284,7 @@ public class StreamConsumer extends HandlerThread {
         private static final int EVENT_DATA_RECEIVE = 0; // for outstanding interest counter
         private static final int EVENT_INTEREST_TIMEOUT = 1; // for outstanding interest counter
         private static final int EVENT_INTEREST_TRANSMIT = 2; // for outstanding interest counter
+        public static final int EVENT_PREMATURE_RTO = 3; // for outstanding interest counter
         private static final int DEFAULT_INTEREST_LIFETIME_MS = 4000;
 
         private PriorityQueue<Long> retransmissionQueue_;
@@ -290,15 +293,17 @@ public class StreamConsumer extends HandlerThread {
         private long highestSegSent_ = NO_SEGS_SENT;
         private long msPerSegNum_;
         private HashMap<Long, Long> segSendTimes_;
-        private ConcurrentHashMap<Long, Long> rtoTimes_;
+        private HashMap<Long, Object> rtoTokens_;
         private CwndCalculator cwndCalculator_;
         private RttEstimator rttEstimator_;
         private int numOutstandingInterests_ = 0;
         private int numInterestsTransmitted_ = 0;
         private int numInterestTimeouts_ = 0;
         private int numDataReceives_ = 0;
+        private int numPrematureRtos_ = 0;
         private boolean closed_ = false;
         private long streamFetchStartTime_;
+        private Handler streamConsumerHandler_;
 
         private void printState() {
             Log.d(TAG, getLogTime() + ": " +
@@ -309,8 +314,8 @@ public class StreamConsumer extends HandlerThread {
                     "numInterestsTransmitted_: " + numInterestsTransmitted_ + ", " +
                     "numInterestTimeouts_: " + numInterestTimeouts_ + ", " +
                     "numDataReceives_: " + numDataReceives_ + ", " +
+                    "numPrematureRtos_ " + numPrematureRtos_ + ", " +
                     "numOutstandingInterests_: " + numOutstandingInterests_ + "\n" +
-                    "rtoTimes_: " + rtoTimes_ + "\n" +
                     "retransmissionQueue_: " + retransmissionQueue_ + "\n" +
                     "segSendTimes_: " + segSendTimes_);
         }
@@ -328,14 +333,15 @@ public class StreamConsumer extends HandlerThread {
                     Constants.MILLISECONDS_PER_SECOND) / producerSamplingRate;
         }
 
-        private StreamFetcher(Name streamName) {
+        private StreamFetcher(Name streamName, Looper streamConsumerLooper) {
             cwndCalculator_ = new CwndCalculator();
             retransmissionQueue_ = new PriorityQueue<>();
             streamName_ = streamName;
             segSendTimes_ = new HashMap<>();
-            rtoTimes_ = new ConcurrentHashMap<>();
+            rtoTokens_ = new HashMap<>();
             rttEstimator_ = new RttEstimator();
             msPerSegNum_ = calculateMsPerSeg(producerSamplingRate_, framesPerSegment_);
+            streamConsumerHandler_ = new Handler(streamConsumerLooper);
             Log.d(TAG, "Generating segment numbers to fetch at " + msPerSegNum_ + " per segment number.");
         }
 
@@ -348,6 +354,7 @@ public class StreamConsumer extends HandlerThread {
         }
 
         private void close() {
+            if (closed_) return;
             Log.d(TAG, getLogTime() + ": " +
                     "close called");
             printState();
@@ -361,21 +368,14 @@ public class StreamConsumer extends HandlerThread {
 
             if (closed_) return;
 
-            for (long segNum : rtoTimes_.keySet()) {
-                long rtoTime = rtoTimes_.get(segNum);
-                if (System.currentTimeMillis() >= rtoTime) {
-                    Log.d(TAG, getLogTime() + ": " + "rto timeout (seg num " + segNum + ")");
-                    modifyNumOutstandingInterests(-1, EVENT_INTEREST_TIMEOUT);
-                    retransmissionQueue_.add(segNum);
-                    rtoTimes_.remove(segNum);
-                }
-            }
-
             while (retransmissionQueue_.size() != 0 && withinCwnd()) {
+                if (closed_) return;
                 Long segNum = retransmissionQueue_.poll();
                 if (segNum == null) continue;
                 transmitInterest(segNum, true);
             }
+
+            if (closed_) return;
 
             if (retransmissionQueue_.size() == 0 && numOutstandingInterests_ == 0 &&
                     streamFinalBlockId_ != FINAL_BLOCK_ID_UNKNOWN) {
@@ -386,6 +386,7 @@ public class StreamConsumer extends HandlerThread {
             if (streamFinalBlockId_ == FINAL_BLOCK_ID_UNKNOWN ||
                     highestSegSent_ < streamFinalBlockId_) {
                 while (nextSegShouldBeSent() && withinCwnd()) {
+                    if (closed_) return;
                     highestSegSent_++;
                     transmitInterest(highestSegSent_, false);
                 }
@@ -431,7 +432,16 @@ public class StreamConsumer extends HandlerThread {
             interestToSend.setCanBePrefix(false);
             interestToSend.setMustBeFresh(false);
 
-            rtoTimes_.put(segNum, System.currentTimeMillis() + rto);
+            Object rtoToken = new Object();
+            streamConsumerHandler_.postAtTime(new Runnable() {
+                @Override
+                public void run() {
+                    Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rto timeout (seg num " + segNum + ")");
+                    modifyNumOutstandingInterests(-1, segNum, EVENT_INTEREST_TIMEOUT);
+                    retransmissionQueue_.add(segNum);
+                }
+            }, rtoToken, SystemClock.uptimeMillis() + rto);
+            rtoTokens_.put(segNum, rtoToken);
 
             if (isRetransmission) {
                 segSendTimes_.remove(segNum);
@@ -439,7 +449,7 @@ public class StreamConsumer extends HandlerThread {
                 segSendTimes_.put(segNum, System.currentTimeMillis());
             }
             network_.sendInterest(interestToSend);
-            modifyNumOutstandingInterests(1, EVENT_INTEREST_TRANSMIT);
+            modifyNumOutstandingInterests(1, segNum, EVENT_INTEREST_TRANSMIT);
             Log.d(TAG, getLogTime() + ": " +
                     "interest transmitted (" +
                     "seg num " + segNum + ", " +
@@ -447,7 +457,8 @@ public class StreamConsumer extends HandlerThread {
                     "rto " + rto + ", " +
                     "lifetime " + lifetime + ", " +
                     "retx: " + isRetransmission + ", " +
-                    "current num outstanding " + numOutstandingInterests_ +
+                    "current num outstanding " + numOutstandingInterests_ + ", " +
+                    "numPrematureRtos_ " + numPrematureRtos_ +
                     ")");
         }
 
@@ -460,22 +471,19 @@ public class StreamConsumer extends HandlerThread {
                 return;
             }
 
+            boolean detectedPrematureRto = retransmissionQueue_.contains(segNum);
+            if (detectedPrematureRto) {
+                modifyNumOutstandingInterests(0, segNum, EVENT_PREMATURE_RTO);
+            }
+
             if (segSendTimes_.containsKey(segNum)) {
                 long rtt = receiveTime - segSendTimes_.get(segNum);
                 Log.d(TAG, getLogTime() + ": " +
                         "rtt estimator add measure (rtt " + rtt + ", " +
                         "num outstanding interests " + numOutstandingInterests_ +
                         ")");
-                if (numOutstandingInterests_ <= 0) {
-                    throw new IllegalStateException(getLogTime() + ": " +
-                            "detected bad measurements being fed to rtt estimator (" +
-                            "numOutstandingInterests_ " + numOutstandingInterests_ + ", " +
-                            "numDataReceives_ " + numDataReceives_ + ", " +
-                            "numInterestTimeouts_ " + numInterestTimeouts_ + ", " +
-                            "numInterestsTransmitted_ " + numInterestsTransmitted_ +
-                            ")");
-                }
-                rttEstimator_.addMeasurement(rtt, numOutstandingInterests_);
+                rttEstimator_.addMeasurement(rtt,
+                        detectedPrematureRto ? numOutstandingInterests_ + 1 : numOutstandingInterests_);
                 Log.d(TAG, getLogTime() + " : " + "rto after last measure add: " +
                         rttEstimator_.getEstimatedRto());
                 segSendTimes_.remove(segNum);
@@ -503,19 +511,19 @@ public class StreamConsumer extends HandlerThread {
                     "name " + audioPacket.getName().toString() + ", " +
                     "seg num " + segNum + ", " +
                     "app nack " + audioPacketWasAppNack + ", " +
-                    "premature rto " + retransmissionQueue_.contains(segNum) +
+                    "premature rto " + detectedPrematureRto +
                     ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId)
                     + ")");
 
-            if (retransmissionQueue_.contains(segNum)) {
-                modifyNumOutstandingInterests(0, EVENT_DATA_RECEIVE);
+            if (detectedPrematureRto) {
+                modifyNumOutstandingInterests(0, segNum, EVENT_DATA_RECEIVE);
             }
             else {
-                modifyNumOutstandingInterests(-1, EVENT_DATA_RECEIVE);
+                modifyNumOutstandingInterests(-1, segNum, EVENT_DATA_RECEIVE);
             }
-
-            rtoTimes_.remove(segNum);
             retransmissionQueue_.remove(segNum);
+            streamConsumerHandler_.removeCallbacksAndMessages(rtoTokens_.get(segNum));
+
         }
 
         private class CwndCalculator {
@@ -538,7 +546,7 @@ public class StreamConsumer extends HandlerThread {
             return numOutstandingInterests_ < cwndCalculator_.getCurrentCwnd();
         }
 
-        private void modifyNumOutstandingInterests(int modifier, int event_code) {
+        private void modifyNumOutstandingInterests(int modifier, long segNum, int event_code) {
             numOutstandingInterests_ += modifier;
             String eventString = "";
             switch (event_code) {
@@ -554,10 +562,15 @@ public class StreamConsumer extends HandlerThread {
                     numInterestsTransmitted_++;
                     eventString = "interest_transmit";
                     break;
+                case EVENT_PREMATURE_RTO:
+                    numPrematureRtos_++;
+                    eventString = "premature_rto";
+                    break;
             }
 
             Log.d(TAG, getLogTime() + ": " +
                     "num outstanding interests changed (" +
+                    "seg num " + segNum + ", " +
                     "event " + eventString + ", " +
                     "new value " + numOutstandingInterests_ +
                     ")");
@@ -638,7 +651,10 @@ public class StreamConsumer extends HandlerThread {
             return streamPlayStartTime_;
         }
 
-        private void close() { closed_ = true; }
+        private void close() {
+            if (closed_) return;
+            closed_ = true;
+        }
 
         private void doSomeWork() {
             if (streamPlayStartTime_ == STREAM_PLAY_START_TIME_UNKNOWN) return;
@@ -656,6 +672,28 @@ public class StreamConsumer extends HandlerThread {
                         "playback deadline " + highestFrameNumPlayedDeadline_
                         + ")"
                 );
+
+                Frame nextFrame = jitterBuffer_.peek();
+                boolean gotExpectedFrame = nextFrame != null && nextFrame.frameNum == highestFrameNumPlayed_;
+                Log.d(TAG, getLogTime() + ": " +
+                        "next frame was " + ((gotExpectedFrame) ? "" : "not ") + "expected frame (" +
+                        "expected frame num " + highestFrameNumPlayed_ + ", " +
+                        "frame num " + ((nextFrame != null) ? nextFrame.frameNum : "unknown (null frame)") +
+                        ")");
+                if (gotExpectedFrame) {
+                    try { os_.write(nextFrame.data); } catch (IOException e) { e.printStackTrace(); }
+                    jitterBuffer_.poll();
+                }
+                else {
+                    if (nextFrame == null || nextFrame.frameNum > highestFrameNumPlayed_) {
+                        try {
+                            os_.write(getSilentFrame());
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+
                 highestFrameNumPlayed_++;
                 highestFrameNumPlayedDeadline_ += msPerFrame_;
             }
@@ -737,6 +775,24 @@ public class StreamConsumer extends HandlerThread {
         private long calculateMsPerFrame(long producerSamplingRate) {
             return (Constants.SAMPLES_PER_ADTS_FRAME *
                     Constants.MILLISECONDS_PER_SECOND) / producerSamplingRate;
+        }
+
+        private byte[] getSilentFrame() {
+            return new byte[] {
+                    (byte)0xff, (byte)0xf1, (byte)0x6c, (byte)0x40, (byte)0x0b, (byte)0x7f, (byte)0xfc, // 7 byte header
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, // empty payload, silence
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+                    (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00, (byte)0x00,
+            };
         }
 
     }

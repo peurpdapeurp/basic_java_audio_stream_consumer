@@ -46,7 +46,7 @@ public class RttEstimator {
         public double minRto = 50.0;
         /** upper bound of RTO in milliseconds
          */
-        public double maxRto = 60000.0;
+        public double maxRto = 600.0;
         /** RTT vaiation multiplier used when calculating RTO
          */
         public int k = 4;

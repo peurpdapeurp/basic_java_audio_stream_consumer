@@ -601,6 +601,7 @@ public class StreamConsumer extends HandlerThread {
         private long finalFrameNumDeadline_;
         private long streamPlayStartTime_ = STREAM_PLAY_START_TIME_UNKNOWN;
         private long msPerFrame_;
+        private boolean firstRealDoSomeWork_ = true;
 
         private void printState() {
             Log.d(TAG, getLogTime() + ": " +
@@ -616,7 +617,6 @@ public class StreamConsumer extends HandlerThread {
             os_ = os;
             jitterBufferDelay_ = JITTER_BUFFER_FRAMES * calculateMsPerFrame(producerSamplingRate_);
             msPerFrame_ = calculateMsPerFrame(producerSamplingRate_);
-            highestFrameNumPlayedDeadline_ = jitterBufferDelay_;
         }
 
         private void setStreamPlayStartTime(long streamPlayStartTime) {
@@ -633,6 +633,12 @@ public class StreamConsumer extends HandlerThread {
 
         private void doSomeWork() {
             if (streamPlayStartTime_ == STREAM_PLAY_START_TIME_UNKNOWN) return;
+
+            if (firstRealDoSomeWork_) {
+                highestFrameNumPlayedDeadline_ = streamPlayStartTime_ + jitterBufferDelay_;
+                firstRealDoSomeWork_ = false;
+            }
+
             if (closed_) return;
 
             if (System.currentTimeMillis() > highestFrameNumPlayedDeadline_) {

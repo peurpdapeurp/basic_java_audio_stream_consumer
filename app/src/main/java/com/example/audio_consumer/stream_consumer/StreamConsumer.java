@@ -34,6 +34,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.PriorityQueue;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class StreamConsumer extends HandlerThread {
 
@@ -58,6 +59,7 @@ public class StreamConsumer extends HandlerThread {
     private long framesPerSegment_;
     private OutputStream os_;
     private Handler handler_;
+    private boolean streamConsumerClosed_ = false;
 
     private long getLogTime() {
         return System.currentTimeMillis();
@@ -83,15 +85,18 @@ public class StreamConsumer extends HandlerThread {
         handler_.removeCallbacksAndMessages(null);
         handler_.getLooper().quitSafely();
         uiHandler_
-                .obtainMessage(MainActivity.MSG_STREAM_CONSUMER_FETCH_COMPLETE, streamName_)
+                .obtainMessage(MainActivity.MSG_STREAM_CONSUMER_PLAY_COMPLETE, streamName_)
                 .sendToTarget();
+        streamConsumerClosed_ = true;
     }
 
     private void doSomeWork() {
         network_.doSomeWork();
         streamFetcher_.doSomeWork();
         streamPlayerBuffer_.doSomeWork();
-        scheduleNextWork(SystemClock.uptimeMillis());
+        if (!streamConsumerClosed_) {
+            scheduleNextWork(SystemClock.uptimeMillis());
+        }
     }
 
     private void scheduleNextWork(long thisOperationStartTimeMs) {
@@ -285,7 +290,7 @@ public class StreamConsumer extends HandlerThread {
         private long highestSegSent_ = NO_SEGS_SENT;
         private long msPerSegNum_;
         private HashMap<Long, Long> segSendTimes_;
-        private HashMap<Long, Long> rtoTimes_;
+        private ConcurrentHashMap<Long, Long> rtoTimes_;
         private CwndCalculator cwndCalculator_;
         private RttEstimator rttEstimator_;
         private int numOutstandingInterests_ = 0;
@@ -298,12 +303,14 @@ public class StreamConsumer extends HandlerThread {
         private void printState() {
             Log.d(TAG, getLogTime() + ": " +
                     "State of StreamFetcher:" + "\n" +
+                    "streamFetchStartTime_: " + streamFetchStartTime_ + ", " +
                     "streamFinalBlockId_: " + streamFinalBlockId_ + ", " +
                     "highestSegSent_: " + highestSegSent_ + ", " +
                     "numInterestsTransmitted_: " + numInterestsTransmitted_ + ", " +
                     "numInterestTimeouts_: " + numInterestTimeouts_ + ", " +
                     "numDataReceives_: " + numDataReceives_ + ", " +
                     "numOutstandingInterests_: " + numOutstandingInterests_ + "\n" +
+                    "rtoTimes_: " + rtoTimes_ + "\n" +
                     "retransmissionQueue_: " + retransmissionQueue_ + "\n" +
                     "segSendTimes_: " + segSendTimes_);
         }
@@ -326,7 +333,7 @@ public class StreamConsumer extends HandlerThread {
             retransmissionQueue_ = new PriorityQueue<>();
             streamName_ = streamName;
             segSendTimes_ = new HashMap<>();
-            rtoTimes_ = new HashMap<>();
+            rtoTimes_ = new ConcurrentHashMap<>();
             rttEstimator_ = new RttEstimator();
             msPerSegNum_ = calculateMsPerSeg(producerSamplingRate_, framesPerSegment_);
             Log.d(TAG, "Generating segment numbers to fetch at " + msPerSegNum_ + " per segment number.");
@@ -344,6 +351,9 @@ public class StreamConsumer extends HandlerThread {
             Log.d(TAG, getLogTime() + ": " +
                     "close called");
             printState();
+            uiHandler_
+                    .obtainMessage(MainActivity.MSG_STREAM_CONSUMER_FETCH_COMPLETE, streamName_)
+                    .sendToTarget();
             closed_ = true;
         }
 
@@ -357,6 +367,7 @@ public class StreamConsumer extends HandlerThread {
                     Log.d(TAG, getLogTime() + ": " + "rto timeout (seg num " + segNum + ")");
                     modifyNumOutstandingInterests(-1, EVENT_INTEREST_TIMEOUT);
                     retransmissionQueue_.add(segNum);
+                    rtoTimes_.remove(segNum);
                 }
             }
 
@@ -627,9 +638,7 @@ public class StreamConsumer extends HandlerThread {
             return streamPlayStartTime_;
         }
 
-        private void close() {
-            closed_ = true;
-        }
+        private void close() { closed_ = true; }
 
         private void doSomeWork() {
             if (streamPlayStartTime_ == STREAM_PLAY_START_TIME_UNKNOWN) return;
@@ -655,12 +664,12 @@ public class StreamConsumer extends HandlerThread {
 
             if (System.currentTimeMillis() > finalFrameNumDeadline_) {
                 Log.d(TAG, getLogTime() + ": " +
-                        "finished playing (" +
+                        "finished playing all frames (" +
                         "final frame num " + finalFrameNum_  + ", " +
                         "playback deadline " + finalFrameNumDeadline_ +
                         ")");
                 printState();
-                close();
+                streamConsumer_.close(); // close the entire stream consumer, now that playback is done
             }
         }
 

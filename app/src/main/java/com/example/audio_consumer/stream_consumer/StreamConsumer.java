@@ -448,6 +448,7 @@ public class StreamConsumer extends HandlerThread {
                     Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rto timeout (seg num " + segNum + ")");
                     modifyNumOutstandingInterests(-1, segNum, EVENT_INTEREST_TIMEOUT);
                     retransmissionQueue_.add(segNum);
+                    printState();
                 }
             }, rtoToken, SystemClock.uptimeMillis() + rto);
             rtoTokens_.put(segNum, rtoToken);
@@ -503,6 +504,7 @@ public class StreamConsumer extends HandlerThread {
             if (audioPacketWasAppNack) {
                 finalBlockId = Helpers.bytesToLong(audioPacket.getContent().getImmutableArray());
                 streamFinalBlockId_ = finalBlockId;
+                streamPlayerBuffer_.receiveFinalSegNum(finalBlockId);
             }
             else {
                 streamPlayerBuffer_.processAdtsFrames(audioPacket.getContent().getImmutableArray(), segNum);
@@ -532,6 +534,8 @@ public class StreamConsumer extends HandlerThread {
             }
             retransmissionQueue_.remove(segNum);
             streamConsumerHandler_.removeCallbacksAndMessages(rtoTokens_.get(segNum));
+
+            printState();
 
         }
 
@@ -595,12 +599,12 @@ public class StreamConsumer extends HandlerThread {
 
         private final static String TAG = "StreamConsumer_PlayerBuffer";
 
-        // Public constants
-        public static final int PLAYBACK_DEADLINE_UNKNOWN = -1;
-
         // Private constants
         private static final int FINAL_FRAME_NUM_UNKNOWN = -1;
         private static final int STREAM_PLAY_START_TIME_UNKNOWN = -1;
+        public static final int FINAL_SEG_NUM_UNKNOWN = -1;
+        private static final int PLAYBACK_DEADLINE_UNKNOWN = -1;
+        public static final int FINAL_FRAME_NUM_DEADLINE_UNKNOWN = -1;
 
         private class Frame implements Comparable<Frame> {
             long frameNum;
@@ -629,17 +633,24 @@ public class StreamConsumer extends HandlerThread {
         private StreamConsumer streamConsumer_;
         private long highestFrameNumPlayed_ = 0;
         private long highestFrameNumPlayedDeadline_;
+        private long finalSegNum_ = FINAL_SEG_NUM_UNKNOWN;
         private long finalFrameNum_ = FINAL_FRAME_NUM_UNKNOWN;
-        private long finalFrameNumDeadline_;
+        private long finalFrameNumDeadline_ = FINAL_FRAME_NUM_DEADLINE_UNKNOWN;
         private long streamPlayStartTime_ = STREAM_PLAY_START_TIME_UNKNOWN;
         private long msPerFrame_;
         private boolean firstRealDoSomeWork_ = true;
+        private long framesSkipped_ = 0;
+        private long framesPlayed_ = 0;
 
         private void printState() {
             Log.d(TAG, getLogTime() + ": " +
                     "State of StreamPlayerBuffer:" + "\n" +
                     "streamPlayStartTime_: " + streamPlayStartTime_ + ", " +
-                    "finalFrameNum_: " + finalFrameNum_ + "\n" +
+                    "framesPlayed_: " + framesPlayed_ + ", " +
+                    "framesSkipped_: " + framesSkipped_ + ", " +
+                    "finalSegNum_: " + ", " +
+                    "finalFrameNum_: " + finalFrameNum_ + ", " +
+                    "finalFrameNumDeadline_: " + finalFrameNumDeadline_ + "\n" +
                     "jitterBuffer_: " + jitterBuffer_);
         }
 
@@ -711,7 +722,7 @@ public class StreamConsumer extends HandlerThread {
                 highestFrameNumPlayedDeadline_ += msPerFrame_;
             }
 
-            if (finalFrameNum_ == FINAL_FRAME_NUM_UNKNOWN) { return; }
+            if (finalFrameNumDeadline_ == FINAL_FRAME_NUM_DEADLINE_UNKNOWN) { return; }
 
             if (System.currentTimeMillis() > finalFrameNumDeadline_) {
                 Log.d(TAG, getLogTime() + ": " +
@@ -751,6 +762,15 @@ public class StreamConsumer extends HandlerThread {
                         ")");
                 finalFrameNumDeadline_ = getPlaybackDeadline(finalFrameNum_);
             }
+        }
+
+        private void receiveFinalSegNum(long finalSegNum) {
+            if (finalFrameNum_ != FINAL_FRAME_NUM_UNKNOWN) return;
+            if (finalSegNum_ != FINAL_SEG_NUM_UNKNOWN) return;
+
+            finalSegNum_ = finalSegNum;
+            // calculate the finalFrameNumDeadline_ based on the assumption that the last segment had framesPerSegment_ frames in it
+            finalFrameNumDeadline_ = getPlaybackDeadline((finalSegNum * options_.framesPerSegment) + options_.framesPerSegment);
         }
 
         private ArrayList<byte[]> parseAdtsFrames(byte[] frames) {

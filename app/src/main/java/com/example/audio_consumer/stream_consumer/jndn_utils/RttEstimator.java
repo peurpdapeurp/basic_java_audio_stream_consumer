@@ -52,7 +52,7 @@ public class RttEstimator {
         public double initialRto = 640.0;
         /** lower bound of RTO in milliseconds
          */
-        public double minRto = 50.0;
+        public double minRto = 200.0;
         /** upper bound of RTO in milliseconds
          */
         public double maxRto = 640.0;

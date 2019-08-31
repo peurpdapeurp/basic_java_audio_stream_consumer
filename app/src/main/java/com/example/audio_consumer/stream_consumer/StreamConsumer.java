@@ -295,10 +295,11 @@ public class StreamConsumer extends HandlerThread {
         // Private constants
         private static final int FINAL_BLOCK_ID_UNKNOWN = -1;
         private static final int NO_SEGS_SENT = -1;
-        private static final int EVENT_DATA_RECEIVE = 0; // for outstanding interest counter
-        private static final int EVENT_INTEREST_TIMEOUT = 1; // for outstanding interest counter
-        private static final int EVENT_INTEREST_TRANSMIT = 2; // for outstanding interest counter
-        public static final int EVENT_PREMATURE_RTO = 3; // for outstanding interest counter
+        private static final int EVENT_DATA_RECEIVE = 0;
+        private static final int EVENT_INTEREST_TIMEOUT = 1;
+        private static final int EVENT_INTEREST_TRANSMIT = 2;
+        public static final int EVENT_PREMATURE_RTO = 3;
+        public static final int EVENT_INTEREST_SKIP = 4;
         private static final int DEFAULT_INTEREST_LIFETIME_MS = 4000;
         private static final int N_EXPECTED_SAMPLES = 1;
 
@@ -314,6 +315,7 @@ public class StreamConsumer extends HandlerThread {
         private int numInterestTimeouts_ = 0;
         private int numDataReceives_ = 0;
         private int numPrematureRtos_ = 0;
+        private int numInterestSkips_ = 0;
         private boolean closed_ = false;
         private long streamFetchStartTime_;
         private Handler streamConsumerHandler_;
@@ -321,19 +323,20 @@ public class StreamConsumer extends HandlerThread {
         private void printState() {
             Log.d(TAG, getLogTime() + ": " +
                     "State of StreamFetcher:" + "\n" +
-                    "streamFetchStartTime_: " + streamFetchStartTime_ + ", " +
-                    "streamFinalBlockId_: " +
+                    "streamFetchStartTime_ " + streamFetchStartTime_ + ", " +
+                    "streamFinalBlockId_ " +
                         ((streamFinalBlockId_ == FINAL_BLOCK_ID_UNKNOWN) ? "unknown" : streamFinalBlockId_) +
                         ", " +
-                    "highestSegSent_: " +
+                    "highestSegSent_ " +
                         ((highestSegSent_ == NO_SEGS_SENT) ? "none " : highestSegSent_) +
-                        ", " +
-                    "numInterestsTransmitted_: " + numInterestsTransmitted_ + ", " +
-                    "numInterestTimeouts_: " + numInterestTimeouts_ + ", " +
-                    "numDataReceives_: " + numDataReceives_ + ", " +
-                    "numPrematureRtos_ " + numPrematureRtos_ + ", " +
-                    "retransmissionQueue_: " + retransmissionQueue_ + "\n" +
-                    "segSendTimes_: " + segSendTimes_);
+                        "\n" +
+                    "numInterestsTransmitted_ " + numInterestsTransmitted_ + ", " +
+                    "numInterestTimeouts_ " + numInterestTimeouts_ + ", " +
+                    "numDataReceives_ " + numDataReceives_ + "\n" +
+                    "numInterestSkips_ " + numInterestSkips_ + ", " +
+                    "numPrematureRtos_ " + numPrematureRtos_ + "\n" +
+                    "retransmissionQueue_ " + retransmissionQueue_ + "\n" +
+                    "segSendTimes_ " + segSendTimes_);
         }
 
         private long getTimeSinceStreamFetchStart() {
@@ -432,6 +435,7 @@ public class StreamConsumer extends HandlerThread {
                         "playback deadline " + playbackDeadline + ", " +
                         "retx: " + isRetransmission +
                         ")");
+                recordPacketEvent(segNum, EVENT_INTEREST_SKIP);
                 return;
             }
 
@@ -572,6 +576,10 @@ public class StreamConsumer extends HandlerThread {
                     numPrematureRtos_++;
                     eventString = "premature_rto";
                     break;
+                case EVENT_INTEREST_SKIP:
+                    numInterestSkips_++;
+                    eventString = "interest_skip";
+                    break;
             }
 
             Log.d(TAG, getLogTime() + ": " +
@@ -632,13 +640,19 @@ public class StreamConsumer extends HandlerThread {
         private void printState() {
             Log.d(TAG, getLogTime() + ": " +
                     "State of StreamPlayerBuffer:" + "\n" +
-                    "streamPlayStartTime_: " + streamPlayStartTime_ + ", " +
-                    "framesPlayed_: " + framesPlayed_ + ", " +
-                    "framesSkipped_: " + framesSkipped_ + ", " +
-                    "finalSegNum_: " + ", " +
-                    "finalFrameNum_: " + finalFrameNum_ + ", " +
-                    "finalFrameNumDeadline_: " + finalFrameNumDeadline_ + "\n" +
-                    "jitterBuffer_: " + jitterBuffer_);
+                    "streamPlayStartTime_ " + streamPlayStartTime_ + ", " +
+                    "framesPlayed_ " + framesPlayed_ + ", " +
+                    "framesSkipped_ " + framesSkipped_ + "\n" +
+                    "finalSegNum_ " +
+                        ((finalSegNum_ == FINAL_SEG_NUM_UNKNOWN) ?
+                        "unknown" : finalSegNum_) + ", " +
+                    "finalFrameNum_ " +
+                        ((finalFrameNum_ == FINAL_FRAME_NUM_UNKNOWN) ?
+                        "unknown" : finalFrameNum_) + ", " +
+                    "finalFrameNumDeadline_ " +
+                        ((finalFrameNum_ == FINAL_FRAME_NUM_DEADLINE_UNKNOWN) ?
+                        "unknown" : finalFrameNumDeadline_) + "\n" +
+                    "jitterBuffer_ " + jitterBuffer_);
         }
 
         private StreamPlayerBuffer(StreamConsumer streamConsumer) {

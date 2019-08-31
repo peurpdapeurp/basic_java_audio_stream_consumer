@@ -14,6 +14,7 @@ import com.example.audio_consumer.Constants;
 import com.example.audio_consumer.MainActivity;
 import com.example.audio_consumer.Utils.Helpers;
 import com.example.audio_consumer.stream_consumer.jndn_utils.RttEstimator;
+import com.example.audio_consumer.stream_player.exoplayer_customization.InputStreamDataSource;
 
 import net.named_data.jndn.ContentType;
 import net.named_data.jndn.Data;
@@ -55,7 +56,7 @@ public class StreamConsumer extends HandlerThread {
     private boolean streamPlayStartCalled_ = false;
     private Handler uiHandler_;
     private Name streamName_;
-    private OutputStream os_;
+    private InputStreamDataSource outSource_;
     private Handler handler_;
     private boolean streamConsumerClosed_ = false;
     private Options options_;
@@ -75,12 +76,12 @@ public class StreamConsumer extends HandlerThread {
         return System.currentTimeMillis();
     }
 
-    public StreamConsumer(Name streamName, OutputStream os, Handler uiHandler,
+    public StreamConsumer(Name streamName, InputStreamDataSource outSource, Handler uiHandler,
                           Options options) {
         super("StreamConsumer");
         streamName_ = streamName;
         options_ = options;
-        os_ = os;
+        outSource_ = outSource;
         uiHandler_ = uiHandler;
         Log.d(TAG, getLogTime() + "; " +
                 "Initialized (" +
@@ -157,8 +158,8 @@ public class StreamConsumer extends HandlerThread {
             }
         };
         network_ = new Network();
-        streamFetcher_ = new StreamFetcher(streamName_, Looper.getMainLooper());
-        streamPlayerBuffer_ = new StreamPlayerBuffer(this, os_);
+        streamFetcher_ = new StreamFetcher(Looper.getMainLooper());
+        streamPlayerBuffer_ = new StreamPlayerBuffer(this);
         uiHandler_
                 .obtainMessage(MainActivity.MSG_STREAM_CONSUMER_INITIALIZED, streamName_)
                 .sendToTarget();
@@ -302,7 +303,6 @@ public class StreamConsumer extends HandlerThread {
         private static final int N_EXPECTED_SAMPLES = 1;
 
         private PriorityQueue<Long> retransmissionQueue_;
-        private Name streamName_;
         private long streamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
         private long highestSegSent_ = NO_SEGS_SENT;
         private long msPerSegNum_;
@@ -340,10 +340,9 @@ public class StreamConsumer extends HandlerThread {
             return System.currentTimeMillis() - streamFetchStartTime_;
         }
 
-        private StreamFetcher(Name streamName, Looper streamConsumerLooper) {
+        private StreamFetcher(Looper streamConsumerLooper) {
             cwndCalculator_ = new CwndCalculator();
             retransmissionQueue_ = new PriorityQueue<>();
-            streamName_ = streamName;
             segSendTimes_ = new HashMap<>();
             rtoTokens_ = new HashMap<>();
             long streamPlayerBufferJitterDelay = options_.jitterBufferSize * calculateMsPerFrame(options_.producerSamplingRate);
@@ -578,7 +577,7 @@ public class StreamConsumer extends HandlerThread {
             Log.d(TAG, getLogTime() + ": " +
                     "recorded packet event (" +
                     "seg num " + segNum + ", " +
-                    "event " + eventString +
+                    "event " + eventString + ", " +
                     "num outstanding interests " + rtoTokens_.size() +
                     ")");
         }
@@ -615,7 +614,6 @@ public class StreamConsumer extends HandlerThread {
             }
         }
 
-        private OutputStream os_;
         private PriorityQueue<Frame> jitterBuffer_;
         private long jitterBufferDelay_;
         private boolean closed_ = false;
@@ -643,10 +641,9 @@ public class StreamConsumer extends HandlerThread {
                     "jitterBuffer_: " + jitterBuffer_);
         }
 
-        private StreamPlayerBuffer(StreamConsumer streamConsumer, OutputStream os) {
+        private StreamPlayerBuffer(StreamConsumer streamConsumer) {
             jitterBuffer_ = new PriorityQueue<>();
             streamConsumer_ = streamConsumer;
-            os_ = os;
             jitterBufferDelay_ = options_.jitterBufferSize * calculateMsPerFrame(options_.producerSamplingRate);
             msPerFrame_ = calculateMsPerFrame(options_.producerSamplingRate);
             Log.d(TAG, getLogTime() + "; " +
@@ -679,7 +676,8 @@ public class StreamConsumer extends HandlerThread {
 
             if (closed_) return;
 
-            if (System.currentTimeMillis() > highestFrameNumPlayedDeadline_) {
+            long currentTime = System.currentTimeMillis();
+            if (currentTime > highestFrameNumPlayedDeadline_) {
                 Log.d(TAG, getLogTime() + ": " +
                         "reached playback deadline for frame " + highestFrameNumPlayed_ + " (" +
                         "playback deadline " + highestFrameNumPlayedDeadline_ +
@@ -694,16 +692,16 @@ public class StreamConsumer extends HandlerThread {
                         "frame num " + ((nextFrame != null) ? nextFrame.frameNum : "unknown (null frame)") +
                         ")");
                 if (gotExpectedFrame) {
-                    try { os_.write(nextFrame.data); } catch (IOException e) { e.printStackTrace(); }
+                    outSource_.write(nextFrame.data,
+                        (finalFrameNumDeadline_ != FINAL_FRAME_NUM_DEADLINE_UNKNOWN &&
+                            currentTime > finalFrameNumDeadline_));
                     jitterBuffer_.poll();
                 }
                 else {
                     if (nextFrame == null || nextFrame.frameNum > highestFrameNumPlayed_) {
-                        try {
-                            os_.write(getSilentFrame());
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
+                        outSource_.write(getSilentFrame(),
+                            (finalFrameNumDeadline_ != FINAL_FRAME_NUM_DEADLINE_UNKNOWN &&
+                                currentTime > finalFrameNumDeadline_));
                     }
                 }
 
@@ -713,7 +711,7 @@ public class StreamConsumer extends HandlerThread {
 
             if (finalFrameNumDeadline_ == FINAL_FRAME_NUM_DEADLINE_UNKNOWN) { return; }
 
-            if (System.currentTimeMillis() > finalFrameNumDeadline_) {
+            if (currentTime > finalFrameNumDeadline_) {
                 Log.d(TAG, getLogTime() + ": " +
                         "finished playing all frames (" +
                         "final frame num " + finalFrameNum_  + ", " +

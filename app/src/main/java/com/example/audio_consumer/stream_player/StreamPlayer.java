@@ -2,8 +2,10 @@ package com.example.audio_consumer.stream_player;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.Handler;
 import android.util.Log;
 
+import com.example.audio_consumer.MainActivity;
 import com.example.audio_consumer.stream_player.exoplayer_customization.AdtsExtractorFactory;
 import com.example.audio_consumer.stream_player.exoplayer_customization.InputStreamDataSource;
 import com.google.android.exoplayer2.DefaultLoadControl;
@@ -14,15 +16,25 @@ import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.ProgressiveMediaSource;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 
+import net.named_data.jndn.Name;
+
 import java.io.InputStream;
 
 public class StreamPlayer {
 
     private static final String TAG = "StreamPlayer";
 
-    public StreamPlayer(Context ctx, InputStream is) {
+    private ExoPlayer player_;
+    private Handler uiHandler_;
+    private Name streamName_;
 
-        ExoPlayer player = ExoPlayerFactory.newSimpleInstance(ctx, new DefaultTrackSelector(),
+    public StreamPlayer(Context ctx, InputStreamDataSource dataSource,
+                        Name streamName, Handler uiHandler) {
+
+        streamName_ = streamName;
+        uiHandler_ = uiHandler;
+
+        player_ = ExoPlayerFactory.newSimpleInstance(ctx, new DefaultTrackSelector(),
                 new DefaultLoadControl.Builder()
                         .setBackBuffer(600, false)
                         .setBufferDurationsMs(600, 600, 600, 600)
@@ -30,15 +42,11 @@ public class StreamPlayer {
                         .createDefaultLoadControl());
         // This is the MediaSource representing the media to be played.
         MediaSource audioSource = new ProgressiveMediaSource.Factory(
-                () -> {
-                    InputStreamDataSource dataSource =
-                            new InputStreamDataSource(is);
-                    return dataSource;
-                },
+                () -> dataSource,
                 new AdtsExtractorFactory())
                 .createMediaSource(Uri.parse("fake_uri"));
 
-        player.addListener(new Player.EventListener() {
+        player_.addListener(new Player.EventListener() {
             @Override
             public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
                 String playbackStateString = "";
@@ -60,12 +68,25 @@ public class StreamPlayer {
                 }
                 Log.d(TAG, System.currentTimeMillis() + ": " +
                         "Exoplayer state changed to: " + playbackStateString);
+
+                if (playbackState == Player.STATE_ENDED)
+                    uiHandler_
+                            .obtainMessage(MainActivity.MSG_STREAM_PLAYER_PLAY_COMPLETE)
+                            .sendToTarget();
             }
         });
 
-        player.prepare(audioSource);
+        player_.prepare(audioSource);
 
-        player.setPlayWhenReady(true);
+        player_.setPlayWhenReady(true);
+    }
+
+    public void close() {
+        player_.release();
+    }
+
+    public Name getStreamName() {
+        return streamName_;
     }
 
 }

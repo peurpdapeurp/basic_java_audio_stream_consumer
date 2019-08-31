@@ -1,6 +1,7 @@
 
 package com.example.audio_consumer;
 
+import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -15,7 +16,8 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.audio_consumer.stream_player.StreamPlayer;
 import com.example.audio_consumer.Utils.Helpers;
-import com.example.audio_consumer.Utils.Pipe;
+import com.example.audio_consumer.stream_player.exoplayer_customization.InputStreamDataSource;
+import com.example.audio_consumer.stream_player.exoplayer_customization.Pipe;
 import com.example.audio_consumer.stream_consumer.StreamConsumer;
 
 import net.named_data.jndn.Name;
@@ -28,6 +30,7 @@ public class MainActivity extends AppCompatActivity {
     public static final int MSG_STREAM_CONSUMER_INITIALIZED = 0;
     public static final int MSG_STREAM_CONSUMER_FETCH_COMPLETE = 1;
     public static final int MSG_STREAM_CONSUMER_PLAY_COMPLETE = 2;
+    public static final int MSG_STREAM_PLAYER_PLAY_COMPLETE = 3;
 
     Button startFetchingButton_;
     Button generateRandomIdButton_;
@@ -40,16 +43,15 @@ public class MainActivity extends AppCompatActivity {
 
     StreamConsumer streamConsumer_;
     StreamPlayer streamPlayer_;
-    Pipe transferPipe_; // for the transfer of audio data from streamConsumer_ to streamPlayer_
     Handler handler_;
+    Context ctx_;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        transferPipe_ = new Pipe();
-        streamPlayer_ = new StreamPlayer(this, transferPipe_.getInputStream());
+        ctx_ = this;
 
         handler_ = new Handler(getMainLooper()) {
             @Override
@@ -76,9 +78,16 @@ public class MainActivity extends AppCompatActivity {
                     case MSG_STREAM_CONSUMER_PLAY_COMPLETE: {
                         Name streamName = (Name) msg.obj;
                         Log.d(TAG, System.currentTimeMillis() + ": " +
-                                "playing of stream " + streamName.toString() + " finished");
+                                "buffering of stream " + streamName.toString() + " finished");
                         streamConsumer_ = null;
-                        startFetchingButton_.setEnabled(true);
+                        break;
+                    }
+                    case MSG_STREAM_PLAYER_PLAY_COMPLETE: {
+                        Log.d(TAG, System.currentTimeMillis() + ": " +
+                                "playing of stream " + streamPlayer_.getStreamName().toString() +
+                                " finished");
+                        streamPlayer_.close();
+                        streamPlayer_ = null;
                         break;
                     }
                     default: {
@@ -99,12 +108,16 @@ public class MainActivity extends AppCompatActivity {
         startFetchingButton_.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+                InputStreamDataSource transferSource = new InputStreamDataSource();
+                Name streamName = new Name(getString(R.string.network_prefix))
+                        .append(streamNameInput_.getText().toString())
+                        .append(streamIdInput_.getText().toString())
+                        .appendVersion(0);
+                streamPlayer_ = new StreamPlayer(ctx_, transferSource,
+                        streamName, handler_);
                 streamConsumer_ = new StreamConsumer(
-                        new Name(getString(R.string.network_prefix))
-                                .append(streamNameInput_.getText().toString())
-                                .append(streamIdInput_.getText().toString())
-                                .appendVersion(0),
-                        transferPipe_.getOutputStream(),
+                        streamName,
+                        transferSource,
                         handler_,
                         new StreamConsumer.Options(Long.parseLong(framesPerSegmentInput_.getText().toString()),
                                 Long.parseLong(jitterBufferSizeInput_.getText().toString()),

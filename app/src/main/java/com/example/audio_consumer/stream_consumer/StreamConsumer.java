@@ -299,6 +299,7 @@ public class StreamConsumer extends HandlerThread {
         private static final int EVENT_INTEREST_TRANSMIT = 2; // for outstanding interest counter
         public static final int EVENT_PREMATURE_RTO = 3; // for outstanding interest counter
         private static final int DEFAULT_INTEREST_LIFETIME_MS = 4000;
+        private static final int N_EXPECTED_SAMPLES = 1;
 
         private PriorityQueue<Long> retransmissionQueue_;
         private Name streamName_;
@@ -309,7 +310,6 @@ public class StreamConsumer extends HandlerThread {
         private HashMap<Long, Object> rtoTokens_;
         private CwndCalculator cwndCalculator_;
         private RttEstimator rttEstimator_;
-        private int numOutstandingInterests_ = 0;
         private int numInterestsTransmitted_ = 0;
         private int numInterestTimeouts_ = 0;
         private int numDataReceives_ = 0;
@@ -322,13 +322,16 @@ public class StreamConsumer extends HandlerThread {
             Log.d(TAG, getLogTime() + ": " +
                     "State of StreamFetcher:" + "\n" +
                     "streamFetchStartTime_: " + streamFetchStartTime_ + ", " +
-                    "streamFinalBlockId_: " + streamFinalBlockId_ + ", " +
-                    "highestSegSent_: " + highestSegSent_ + ", " +
+                    "streamFinalBlockId_: " +
+                        ((streamFinalBlockId_ == FINAL_BLOCK_ID_UNKNOWN) ? "unknown" : streamFinalBlockId_) +
+                        ", " +
+                    "highestSegSent_: " +
+                        ((highestSegSent_ == NO_SEGS_SENT) ? "none " : highestSegSent_) +
+                        ", " +
                     "numInterestsTransmitted_: " + numInterestsTransmitted_ + ", " +
                     "numInterestTimeouts_: " + numInterestTimeouts_ + ", " +
                     "numDataReceives_: " + numDataReceives_ + ", " +
                     "numPrematureRtos_ " + numPrematureRtos_ + ", " +
-                    "numOutstandingInterests_: " + numOutstandingInterests_ + "\n" +
                     "retransmissionQueue_: " + retransmissionQueue_ + "\n" +
                     "segSendTimes_: " + segSendTimes_);
         }
@@ -386,12 +389,6 @@ public class StreamConsumer extends HandlerThread {
 
             if (closed_) return;
 
-            if (retransmissionQueue_.size() == 0 && numOutstandingInterests_ == 0 &&
-                    streamFinalBlockId_ != FINAL_BLOCK_ID_UNKNOWN) {
-                close();
-                return;
-            }
-
             if (streamFinalBlockId_ == FINAL_BLOCK_ID_UNKNOWN ||
                     highestSegSent_ < streamFinalBlockId_) {
                 while (nextSegShouldBeSent() && withinCwnd()) {
@@ -399,6 +396,12 @@ public class StreamConsumer extends HandlerThread {
                     highestSegSent_++;
                     transmitInterest(highestSegSent_, false);
                 }
+            }
+
+            if (retransmissionQueue_.size() == 0 && rtoTokens_.size() == 0 &&
+                    streamFinalBlockId_ != FINAL_BLOCK_ID_UNKNOWN) {
+                close();
+                return;
             }
         }
 
@@ -428,8 +431,7 @@ public class StreamConsumer extends HandlerThread {
                         "rto " + rto + ", " +
                         "transmit time " + transmitTime + ", " +
                         "playback deadline " + playbackDeadline + ", " +
-                        "retx: " + isRetransmission + ", " +
-                        "current num outstanding " + numOutstandingInterests_ +
+                        "retx: " + isRetransmission +
                         ")");
                 return;
             }
@@ -446,9 +448,9 @@ public class StreamConsumer extends HandlerThread {
                 @Override
                 public void run() {
                     Log.d(TAG, getTimeSinceStreamFetchStart() + ": " + "rto timeout (seg num " + segNum + ")");
-                    modifyNumOutstandingInterests(-1, segNum, EVENT_INTEREST_TIMEOUT);
                     retransmissionQueue_.add(segNum);
-                    printState();
+                    rtoTokens_.remove(segNum);
+                    recordPacketEvent(segNum, EVENT_INTEREST_TIMEOUT);
                 }
             }, rtoToken, SystemClock.uptimeMillis() + rto);
             rtoTokens_.put(segNum, rtoToken);
@@ -459,7 +461,7 @@ public class StreamConsumer extends HandlerThread {
                 segSendTimes_.put(segNum, System.currentTimeMillis());
             }
             network_.sendInterest(interestToSend);
-            modifyNumOutstandingInterests(1, segNum, EVENT_INTEREST_TRANSMIT);
+            recordPacketEvent(segNum, EVENT_INTEREST_TRANSMIT);
             Log.d(TAG, getLogTime() + ": " +
                     "interest transmitted (" +
                     "seg num " + segNum + ", " +
@@ -467,7 +469,6 @@ public class StreamConsumer extends HandlerThread {
                     "rto " + rto + ", " +
                     "lifetime " + lifetime + ", " +
                     "retx: " + isRetransmission + ", " +
-                    "current num outstanding " + numOutstandingInterests_ + ", " +
                     "numPrematureRtos_ " + numPrematureRtos_ +
                     ")");
         }
@@ -483,17 +484,16 @@ public class StreamConsumer extends HandlerThread {
 
             boolean detectedPrematureRto = retransmissionQueue_.contains(segNum);
             if (detectedPrematureRto) {
-                modifyNumOutstandingInterests(0, segNum, EVENT_PREMATURE_RTO);
+                recordPacketEvent(segNum, EVENT_PREMATURE_RTO);
             }
 
             if (segSendTimes_.containsKey(segNum)) {
                 long rtt = receiveTime - segSendTimes_.get(segNum);
                 Log.d(TAG, getLogTime() + ": " +
                         "rtt estimator add measure (rtt " + rtt + ", " +
-                        "num outstanding interests " + numOutstandingInterests_ +
+                        "num outstanding interests " + N_EXPECTED_SAMPLES +
                         ")");
-                rttEstimator_.addMeasurement(rtt,
-                        detectedPrematureRto ? numOutstandingInterests_ + 1 : numOutstandingInterests_);
+                rttEstimator_.addMeasurement(rtt, N_EXPECTED_SAMPLES);
                 Log.d(TAG, getLogTime() + " : " + "rto after last measure add: " +
                         rttEstimator_.getEstimatedRto());
                 segSendTimes_.remove(segNum);
@@ -523,19 +523,14 @@ public class StreamConsumer extends HandlerThread {
                     "seg num " + segNum + ", " +
                     "app nack " + audioPacketWasAppNack + ", " +
                     "premature rto " + detectedPrematureRto +
-                    ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId)
-                    + ")");
+                    ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId) +
+                    ")");
 
-            if (detectedPrematureRto) {
-                modifyNumOutstandingInterests(0, segNum, EVENT_DATA_RECEIVE);
-            }
-            else {
-                modifyNumOutstandingInterests(-1, segNum, EVENT_DATA_RECEIVE);
-            }
+
+            recordPacketEvent(segNum, EVENT_DATA_RECEIVE);
             retransmissionQueue_.remove(segNum);
             streamConsumerHandler_.removeCallbacksAndMessages(rtoTokens_.get(segNum));
-
-            printState();
+            rtoTokens_.remove(segNum);
 
         }
 
@@ -556,11 +551,10 @@ public class StreamConsumer extends HandlerThread {
         }
 
         private boolean withinCwnd() {
-            return numOutstandingInterests_ < cwndCalculator_.getCurrentCwnd();
+            return rtoTokens_.size() < cwndCalculator_.getCurrentCwnd();
         }
 
-        private void modifyNumOutstandingInterests(int modifier, long segNum, int event_code) {
-            numOutstandingInterests_ += modifier;
+        private void recordPacketEvent(long segNum, int event_code) {
             String eventString = "";
             switch (event_code) {
                 case EVENT_DATA_RECEIVE:
@@ -582,16 +576,11 @@ public class StreamConsumer extends HandlerThread {
             }
 
             Log.d(TAG, getLogTime() + ": " +
-                    "num outstanding interests changed (" +
+                    "recorded packet event (" +
                     "seg num " + segNum + ", " +
-                    "event " + eventString + ", " +
-                    "new value " + numOutstandingInterests_ +
+                    "event " + eventString +
+                    "num outstanding interests " + rtoTokens_.size() +
                     ")");
-
-            if (numOutstandingInterests_ < 0) {
-                Log.e(TAG, "invalid outstanding interest count: " + numOutstandingInterests_);
-                close();
-            }
         }
     }
 
@@ -693,8 +682,8 @@ public class StreamConsumer extends HandlerThread {
             if (System.currentTimeMillis() > highestFrameNumPlayedDeadline_) {
                 Log.d(TAG, getLogTime() + ": " +
                         "reached playback deadline for frame " + highestFrameNumPlayed_ + " (" +
-                        "playback deadline " + highestFrameNumPlayedDeadline_
-                        + ")"
+                        "playback deadline " + highestFrameNumPlayedDeadline_ +
+                        ")"
                 );
 
                 Frame nextFrame = jitterBuffer_.peek();

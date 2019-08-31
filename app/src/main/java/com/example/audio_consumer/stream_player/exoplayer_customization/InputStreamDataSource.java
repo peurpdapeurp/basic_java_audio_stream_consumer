@@ -1,6 +1,7 @@
 package com.example.audio_consumer.stream_player.exoplayer_customization;
 
 import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
@@ -10,6 +11,8 @@ import com.google.android.exoplayer2.upstream.BaseDataSource;
 import com.google.android.exoplayer2.upstream.DataSpec;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 public class InputStreamDataSource extends BaseDataSource {
 
@@ -100,6 +103,48 @@ public class InputStreamDataSource extends BaseDataSource {
         }
         pipe_.close();
         uri_ = null;
+    }
+
+    private class Pipe {
+
+        private InputStream is_;
+        private OutputStream os_;
+        private ParcelFileDescriptor[] parcelFileDescriptors_;
+        private ParcelFileDescriptor parcelRead_;
+        private ParcelFileDescriptor parcelWrite_;
+
+        public Pipe() {
+            try {
+                parcelFileDescriptors_ = ParcelFileDescriptor.createPipe();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            parcelRead_ = new ParcelFileDescriptor(parcelFileDescriptors_[0]);
+            parcelWrite_ = new ParcelFileDescriptor(parcelFileDescriptors_[1]);
+
+            is_ = new ParcelFileDescriptor.AutoCloseInputStream(parcelRead_);
+            os_ = new ParcelFileDescriptor.AutoCloseOutputStream(parcelWrite_);
+        }
+
+        public InputStream getInputStream() {
+            return is_;
+        }
+
+        public OutputStream getOutputStream() {
+            return os_;
+        }
+
+        public void close() {
+            try {
+                is_.close();
+                os_.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+        }
+
     }
 
 }

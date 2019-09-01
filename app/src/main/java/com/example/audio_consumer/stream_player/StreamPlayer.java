@@ -24,6 +24,9 @@ public class StreamPlayer {
 
     private static final String TAG = "StreamPlayer";
 
+    // Events for stream statistics and ui notifications
+    private static final int EVENT_STREAM_PLAY_COMPLETE = 0;
+
     private ExoPlayer player_;
     private Handler uiHandler_;
     private Name streamName_;
@@ -70,9 +73,7 @@ public class StreamPlayer {
                         "Exoplayer state changed to: " + playbackStateString);
 
                 if (playbackState == Player.STATE_ENDED)
-                    uiHandler_
-                            .obtainMessage(MainActivity.MSG_STREAM_PLAYER_PLAY_COMPLETE)
-                            .sendToTarget();
+                    notifyUiEvent(EVENT_STREAM_PLAY_COMPLETE, 0);
             }
         });
 
@@ -87,6 +88,20 @@ public class StreamPlayer {
 
     public Name getStreamName() {
         return streamName_;
+    }
+
+    private void notifyUiEvent(int event_code, long arg1) {
+        int what;
+        switch (event_code) {
+            case EVENT_STREAM_PLAY_COMPLETE:
+                what = MainActivity.MSG_STREAM_PLAYER_PLAY_COMPLETE;
+                break;
+            default:
+                throw new IllegalStateException("unrecognized event_code: " + event_code);
+        }
+        uiHandler_
+                .obtainMessage(what, new MainActivity.UiEventInfo(streamName_, arg1))
+                .sendToTarget();
     }
 
 }

@@ -9,6 +9,7 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -25,11 +26,20 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
 
-    // Messages
+    // Messages from Stream Consumers
     public static final int MSG_STREAM_CONSUMER_INITIALIZED = 0;
     public static final int MSG_STREAM_CONSUMER_FETCH_COMPLETE = 1;
-    public static final int MSG_STREAM_CONSUMER_PLAY_COMPLETE = 2;
-    public static final int MSG_STREAM_PLAYER_PLAY_COMPLETE = 3;
+    public static final int MSG_STREAM_FETCHER_PRODUCTION_WINDOW_GROW = 2;
+    public static final int MSG_STREAM_FETCHER_INTEREST_SKIP = 3;
+    public static final int MSG_STREAM_FETCHER_AUDIO_RETRIEVED = 4;
+    public static final int MSG_STREAM_FETCHER_NACK_RETRIEVED = 5;
+    public static final int MSG_STREAM_FETCHER_FINAL_BLOCK_ID_LEARNED = 6;
+    public static final int MSG_STREAM_BUFFER_FRAME_PLAYED = 7;
+    public static final int MSG_STREAM_BUFFER_FRAME_SKIP = 8;
+    public static final int MSG_STREAM_BUFFER_PLAY_COMPLETE = 9;
+
+    // Messages from Stream Player
+    public static final int MSG_STREAM_PLAYER_PLAY_COMPLETE = 10;
 
     Button startFetchingButton_;
     Button generateRandomIdButton_;
@@ -39,11 +49,22 @@ public class MainActivity extends AppCompatActivity {
     EditText framesPerSegmentInput_;
     EditText jitterBufferSizeInput_;
     EditText producerSamplingRateInput_;
+    ProgressBar productionProgressBar_;
+    ProgressBar fetchingProgressBar_;
 
     StreamConsumer streamConsumer_;
     StreamPlayer streamPlayer_;
     Handler handler_;
     Context ctx_;
+
+    public static class UiEventInfo {
+        public UiEventInfo(Name streamName, long arg1) {
+            this.streamName = streamName;
+            this.arg1 = arg1;
+        }
+        public Name streamName;
+        public long arg1;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,9 +76,12 @@ public class MainActivity extends AppCompatActivity {
         handler_ = new Handler(getMainLooper()) {
             @Override
             public void handleMessage(@NonNull Message msg) {
+
+                UiEventInfo uiEventInfo = (UiEventInfo) msg.obj;
+                Name streamName = uiEventInfo.streamName;
+
                 switch (msg.what) {
                     case MSG_STREAM_CONSUMER_INITIALIZED: {
-                        Name streamName = (Name) msg.obj;
                         Log.d(TAG, System.currentTimeMillis() + ": " +
                                 "fetching of stream " + streamName.toString() + " started");
                         streamConsumer_.getHandler()
@@ -69,13 +93,11 @@ public class MainActivity extends AppCompatActivity {
                         break;
                     }
                     case MSG_STREAM_CONSUMER_FETCH_COMPLETE: {
-                        Name streamName = (Name) msg.obj;
                         Log.d(TAG, System.currentTimeMillis() + ": " +
                                 "fetching of stream " + streamName.toString() + " finished");
                         break;
                     }
-                    case MSG_STREAM_CONSUMER_PLAY_COMPLETE: {
-                        Name streamName = (Name) msg.obj;
+                    case MSG_STREAM_BUFFER_PLAY_COMPLETE: {
                         Log.d(TAG, System.currentTimeMillis() + ": " +
                                 "buffering of stream " + streamName.toString() + " finished");
                         streamConsumer_ = null;
@@ -87,6 +109,57 @@ public class MainActivity extends AppCompatActivity {
                                 " finished");
                         streamPlayer_.close();
                         streamPlayer_ = null;
+                        break;
+                    }
+                    case MSG_STREAM_FETCHER_PRODUCTION_WINDOW_GROW: {
+                        long highestSegNum = uiEventInfo.arg1;
+                        Log.d(TAG, System.currentTimeMillis() + ": " +
+                                "stream fetcher production window grow (" +
+                                "highestSegNum " + highestSegNum +
+                                ")");
+                        break;
+                    }
+                    case MSG_STREAM_FETCHER_INTEREST_SKIP: {
+                        long segNum = uiEventInfo.arg1;
+                        Log.d(TAG, System.currentTimeMillis() + ": " +
+                                "stream fetcher interest skip (" +
+                                "seg num " + segNum +
+                                ")");
+                        break;
+                    }
+                    case MSG_STREAM_FETCHER_AUDIO_RETRIEVED: {
+                        long segNum = uiEventInfo.arg1;
+                        Log.d(TAG, System.currentTimeMillis() + ": " +
+                                "stream fetcher audio packet retrieved (" +
+                                "seg num " + segNum +
+                                ")");
+                        break;
+                    }
+                    case MSG_STREAM_FETCHER_NACK_RETRIEVED: {
+                        long segNum = uiEventInfo.arg1;
+                        Log.d(TAG, System.currentTimeMillis() + ": " +
+                                "stream fetcher nack retrieved (" +
+                                "seg num " + segNum +
+                                ")");
+                        break;
+                    }
+                    case MSG_STREAM_FETCHER_FINAL_BLOCK_ID_LEARNED: {
+
+                    }
+                    case MSG_STREAM_BUFFER_FRAME_PLAYED: {
+                        long highestFrameNumPlayed = uiEventInfo.arg1;
+                        Log.d(TAG, System.currentTimeMillis() + ": " +
+                                "stream player frame played (" +
+                                "highestFrameNumPlayed " + highestFrameNumPlayed +
+                                ")");
+                        break;
+                    }
+                    case MSG_STREAM_BUFFER_FRAME_SKIP: {
+                        long highestFrameNumPlayed = uiEventInfo.arg1;
+                        Log.d(TAG, System.currentTimeMillis() + ": " +
+                                "stream player frame skipped (" +
+                                "highestFrameNumPlayed " + highestFrameNumPlayed +
+                                ")");
                         break;
                     }
                     default: {
@@ -102,6 +175,8 @@ public class MainActivity extends AppCompatActivity {
         framesPerSegmentInput_ = (EditText) findViewById(R.id.frames_per_segment_input);
         jitterBufferSizeInput_ = (EditText) findViewById(R.id.jitter_buffer_size_input);
         producerSamplingRateInput_ = (EditText) findViewById(R.id.producer_sampling_rate_input);
+        productionProgressBar_ = (ProgressBar) findViewById(R.id.production_progress_bar);
+        fetchingProgressBar_ = (ProgressBar) findViewById(R.id.fetching_progress_bar);
 
         startFetchingButton_ = (Button) findViewById(R.id.start_fetch_button);
         startFetchingButton_.setOnClickListener(new View.OnClickListener() {

@@ -14,8 +14,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.example.audio_consumer.custom_progress_bar.CustomSeekBar;
-import com.example.audio_consumer.custom_progress_bar.ProgressItem;
+import com.example.audio_consumer.custom_progress_bar.CustomProgressBar;
 import com.example.audio_consumer.stream_player.StreamPlayer;
 import com.example.audio_consumer.Utils.Helpers;
 import com.example.audio_consumer.stream_player.exoplayer_customization.InputStreamDataSource;
@@ -55,9 +54,9 @@ public class MainActivity extends AppCompatActivity {
     EditText producerSamplingRateInput_;
 
     TextView productionProgressBarLabel_;
-    CustomSeekBar productionProgressBar_;
-    CustomSeekBar fetchingProgressBar_;
-    CustomSeekBar playingProgressBar_;
+    CustomProgressBar productionProgressBar_;
+    CustomProgressBar fetchingProgressBar_;
+    CustomProgressBar playingProgressBar_;
 
     HashMap<Name, StreamState> streamStates_;
     Name lastStreamName_;
@@ -153,6 +152,7 @@ public class MainActivity extends AppCompatActivity {
                         streamState.highestSegProduced = highestSegProduced;
                         updateProductionProgressBar(streamState.highestSegProduced,
                                 streamState.finalBlockId);
+                        updateProductionProgressBarLabel(streamState);
                         break;
                     }
                     case MSG_STREAM_FETCHER_INTEREST_SKIP: {
@@ -171,6 +171,7 @@ public class MainActivity extends AppCompatActivity {
                         streamState.finalBlockId = uiEventInfo.arg1;
                         updateProductionProgressBar(streamState.highestSegProduced,
                                 streamState.finalBlockId);
+                        updateProductionProgressBarLabel(streamState);
                     }
                     case MSG_STREAM_BUFFER_FRAME_PLAYED: {
                         long highestFrameNumPlayed = uiEventInfo.arg1;
@@ -194,18 +195,22 @@ public class MainActivity extends AppCompatActivity {
         jitterBufferSizeInput_ = (EditText) findViewById(R.id.jitter_buffer_size_input);
         producerSamplingRateInput_ = (EditText) findViewById(R.id.producer_sampling_rate_input);
 
-        productionProgressBar_ = (CustomSeekBar) findViewById(R.id.production_progress_bar);
+        productionProgressBar_ = (CustomProgressBar) findViewById(R.id.production_progress_bar);
         productionProgressBar_.getThumb().setAlpha(0);
+        productionProgressBar_.init();
+
         productionProgressBarLabel_ = (TextView) findViewById(R.id.production_progress_bar_label);
-        updateProductionProgressBar(StreamState.NO_SEGMENTS_PRODUCED, StreamState.FINAL_BLOCK_ID_UNKNOWN);
+        String newProductionProgressBarLabel =
+                getString(R.string.production_progress_bar_label) + " " + "(segment ?/?)";
+        productionProgressBarLabel_.setText(newProductionProgressBarLabel);
 
-        fetchingProgressBar_ = (CustomSeekBar) findViewById(R.id.fetching_progress_bar);
+        fetchingProgressBar_ = (CustomProgressBar) findViewById(R.id.fetching_progress_bar);
         fetchingProgressBar_.getThumb().setAlpha(0);
-        updateFetchingProgressBar();
+        fetchingProgressBar_.init();
 
-        playingProgressBar_ = (CustomSeekBar) findViewById(R.id.playing_progress_bar);
+        playingProgressBar_ = (CustomProgressBar) findViewById(R.id.playing_progress_bar);
         playingProgressBar_.getThumb().setAlpha(0);
-        updatePlayingProgressBar();
+        playingProgressBar_.init();
 
         startFetchingButton_ = (Button) findViewById(R.id.start_fetch_button);
         startFetchingButton_.setOnClickListener(new View.OnClickListener() {
@@ -261,90 +266,28 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    private void updateProductionProgressBar(long highestSegNum, long finalBlockId) {
+    private void updateProductionProgressBar(long highestSegProduced, long finalBlockId) {
         boolean finalBlockIdKnown = finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN;
         if (finalBlockIdKnown) {
-            productionProgressBar_.setTotalSegments(finalBlockId+1);
+            productionProgressBar_.setTotalSegments((int) finalBlockId + 1);
         }
         if (finalBlockId == StreamState.FINAL_BLOCK_ID_UNKNOWN &&
-                ((float) highestSegNum / (float) productionProgressBar_.getTotalSegments()) > 0.90f) {
+                ((float) highestSegProduced / (float) productionProgressBar_.getTotalSegments()) > 0.90f) {
             productionProgressBar_.setTotalSegments(productionProgressBar_.getTotalSegments() * 2);
         }
 
-        float redPercentage = ((float) (highestSegNum+1) / (float) productionProgressBar_.getTotalSegments()) * 100f;
-        float greyPercentage = 100f - redPercentage;
+        productionProgressBar_.updateSingleSegmentColor((int) highestSegProduced, R.color.green);
+    }
 
-//        Log.d(TAG, System.currentTimeMillis() + ": " +
-//                "production progress bar updated \n" +
-//                "final block id " +
-//                        (finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN
-//                                ? finalBlockId : "unknown") + ", " +
-//                "highest seg num " + highestSegNum + ", " +
-//                "total segments " + productionProgressBar_.getTotalSegments() + "\n" +
-//                "red percentage " + greenPercentage + ", " +
-//                "grey percentage " + greyPercentage);
-
-        ArrayList<ProgressItem> progressItemList = new ArrayList<>();
-        ProgressItem progressItem;
-
-        if (finalBlockIdKnown && highestSegNum >= finalBlockId) {
-            // green span
-            progressItem = new ProgressItem();
-            progressItem.progressItemPercentage = 100f;
-            progressItem.color = R.color.green;
-            progressItemList.add(progressItem);
-        }
-        else {
-            // red span
-            progressItem = new ProgressItem();
-            progressItem.progressItemPercentage = redPercentage;
-            progressItem.color = R.color.red;
-            progressItemList.add(progressItem);
-            // grey span
-            progressItem = new ProgressItem();
-            progressItem.progressItemPercentage = greyPercentage;
-            progressItem.color = R.color.grey;
-            progressItemList.add(progressItem);
-        }
-
-        productionProgressBar_.initData(progressItemList);
-        productionProgressBar_.invalidate();
+    private void updateProductionProgressBarLabel(StreamState streamState) {
         String newProductionProgressBarLabel =
                 getString(R.string.production_progress_bar_label) + " " +
-                "(segment " +
-                        ((highestSegNum == StreamState.NO_SEGMENTS_PRODUCED) ? "?" : highestSegNum) +
+                        "(segment " +
+                        ((streamState.highestSegProduced == StreamState.NO_SEGMENTS_PRODUCED) ?
+                                "?" : streamState.highestSegProduced) +
                         "/" +
-                        (finalBlockIdKnown ? finalBlockId : "?") + ")";
+                        (streamState.finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN ?
+                                streamState.finalBlockId : "?") + ")";
         productionProgressBarLabel_.setText(newProductionProgressBarLabel);
-    }
-
-    private void updateFetchingProgressBar() {
-
-        ArrayList<ProgressItem> progressItemList = new ArrayList<>();
-        ProgressItem progressItem;
-        // grey span
-        progressItem = new ProgressItem();
-        progressItem.progressItemPercentage = 100f;
-        progressItem.color = R.color.grey;
-        progressItemList.add(progressItem);
-
-        fetchingProgressBar_.initData(progressItemList);
-        fetchingProgressBar_.invalidate();
-
-    }
-
-    private void updatePlayingProgressBar() {
-
-        ArrayList<ProgressItem> progressItemList = new ArrayList<>();
-        ProgressItem progressItem;
-        // grey span
-        progressItem = new ProgressItem();
-        progressItem.progressItemPercentage = 100f;
-        progressItem.color = R.color.grey;
-        progressItemList.add(progressItem);
-
-        playingProgressBar_.initData(progressItemList);
-        playingProgressBar_.invalidate();
-
     }
 }

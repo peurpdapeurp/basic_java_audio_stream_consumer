@@ -176,7 +176,7 @@
             android:textColor="#000000"
             android:textStyle="bold" />
 
-        <com.example.audio_consumer.custom_progress_bar.CustomSeekBar
+        <com.example.audio_consumer.custom_progress_bar.CustomProgressBar
             android:id="@+id/production_progress_bar"
             android:layout_width="match_parent"
             android:layout_height="20dp"
@@ -197,7 +197,7 @@
             android:textColor="#000000"
             android:textStyle="bold" />
 
-        <com.example.audio_consumer.custom_progress_bar.CustomSeekBar
+        <com.example.audio_consumer.custom_progress_bar.CustomProgressBar
             android:id="@+id/fetching_progress_bar"
             android:layout_width="match_parent"
             android:layout_height="20dp"
@@ -218,7 +218,7 @@
             android:textColor="#000000"
             android:textStyle="bold" />
 
-        <com.example.audio_consumer.custom_progress_bar.CustomSeekBar
+        <com.example.audio_consumer.custom_progress_bar.CustomProgressBar
             android:id="@+id/playing_progress_bar"
             android:layout_width="match_parent"
             android:layout_height="20dp"

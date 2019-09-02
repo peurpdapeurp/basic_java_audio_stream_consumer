@@ -541,7 +541,6 @@ public class StreamConsumer extends HandlerThread {
                     ((finalBlockId == FINAL_BLOCK_ID_UNKNOWN) ? "" : ", final block id " + finalBlockId) +
                     ")");
 
-
             if (audioPacketWasAppNack) {
                 recordPacketEvent(segNum, EVENT_STREAM_FETCHER_NACK_RECEIVE);
                 notifyUiEvent(EVENT_STREAM_FETCHER_NACK_RECEIVE, segNum);

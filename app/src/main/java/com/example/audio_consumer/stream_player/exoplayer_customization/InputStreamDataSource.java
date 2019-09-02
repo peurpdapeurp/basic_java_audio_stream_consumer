@@ -2,7 +2,6 @@ package com.example.audio_consumer.stream_player.exoplayer_customization;
 
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
-import android.util.Log;
 
 import androidx.annotation.Nullable;
 
@@ -54,8 +53,6 @@ public class InputStreamDataSource extends BaseDataSource {
     @Override
     public int read(byte[] buffer, int offset, int readLength) throws IOException {
         if (lastBytePosition_ != LAST_BYTE_POSITION_UNKNOWN && readPosition_ >= lastBytePosition_) {
-            Log.d(TAG, System.currentTimeMillis() + ": " +
-                    "reached end of stream");
             return C.RESULT_END_OF_INPUT;
         }
         if (readLength == 0) {
@@ -80,13 +77,6 @@ public class InputStreamDataSource extends BaseDataSource {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        Log.d(TAG, System.currentTimeMillis() + ": " +
-                "write called (" +
-                "writePosition_ " + writePosition_ + ", " +
-                "lastBytePosition_ " +
-                    ((lastBytePosition_ == LAST_BYTE_POSITION_UNKNOWN) ?
-                            "unknown" : lastBytePosition_) +
-                ")");
     }
 
     @Nullable

@@ -60,6 +60,7 @@ public class MainActivity extends AppCompatActivity {
     CustomSeekBar playingProgressBar_;
 
     HashMap<Name, StreamState> streamStates_;
+    Name lastStreamName_;
     Handler handler_;
     Context ctx_;
 
@@ -210,11 +211,20 @@ public class MainActivity extends AppCompatActivity {
         startFetchingButton_.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+                if (lastStreamName_ != null) {
+                    StreamState lastStreamState = streamStates_.get(lastStreamName_);
+                    if (lastStreamState != null) {
+                        lastStreamState.streamConsumer.close();
+                        lastStreamState.streamPlayer.close();
+                        streamStates_.remove(lastStreamName_);
+                    }
+                }
                 InputStreamDataSource transferSource = new InputStreamDataSource();
                 Name streamName = new Name(getString(R.string.network_prefix))
                         .append(streamNameInput_.getText().toString())
                         .append(streamIdInput_.getText().toString())
                         .appendVersion(0);
+                lastStreamName_ = streamName;
                 StreamPlayer streamPlayer = new StreamPlayer(ctx_, transferSource,
                         streamName, handler_);
                 StreamConsumer streamConsumer = new StreamConsumer(
@@ -277,11 +287,10 @@ public class MainActivity extends AppCompatActivity {
         ArrayList<ProgressItem> progressItemList = new ArrayList<>();
         ProgressItem progressItem;
 
-        if (finalBlockIdKnown && highestSegNum == finalBlockId) {
+        if (finalBlockIdKnown && highestSegNum >= finalBlockId) {
             // green span
             progressItem = new ProgressItem();
             progressItem.progressItemPercentage = 100f;
-            Log.i("Mainactivity", progressItem.progressItemPercentage + "");
             progressItem.color = R.color.green;
             progressItemList.add(progressItem);
         }
@@ -289,7 +298,6 @@ public class MainActivity extends AppCompatActivity {
             // red span
             progressItem = new ProgressItem();
             progressItem.progressItemPercentage = redPercentage;
-            Log.i("Mainactivity", progressItem.progressItemPercentage + "");
             progressItem.color = R.color.red;
             progressItemList.add(progressItem);
             // grey span

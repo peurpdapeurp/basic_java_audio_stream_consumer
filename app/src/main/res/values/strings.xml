@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">NASC</string>
     <string name="network_prefix">/ndnpttv2</string>
+    <string name="production_progress_bar_label">Production Progress</string>
 </resources>

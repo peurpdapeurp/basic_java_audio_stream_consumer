@@ -308,8 +308,6 @@ public class StreamConsumer extends HandlerThread {
         private static final int DEFAULT_INTEREST_LIFETIME_MS = 4000;
         private static final int N_EXPECTED_SAMPLES = 1;
 
-
-
         private PriorityQueue<Long> retransmissionQueue_;
         private long streamFinalBlockId_ = FINAL_BLOCK_ID_UNKNOWN;
         private long highestSegSent_ = NO_SEGS_SENT;
@@ -623,9 +621,9 @@ public class StreamConsumer extends HandlerThread {
         // Private constants
         private static final int FINAL_FRAME_NUM_UNKNOWN = -1;
         private static final int STREAM_PLAY_START_TIME_UNKNOWN = -1;
-        public static final int FINAL_SEG_NUM_UNKNOWN = -1;
+        private static final int FINAL_SEG_NUM_UNKNOWN = -1;
         private static final int PLAYBACK_DEADLINE_UNKNOWN = -1;
-        public static final int FINAL_FRAME_NUM_DEADLINE_UNKNOWN = -1;
+        private static final int FINAL_FRAME_NUM_DEADLINE_UNKNOWN = -1;
 
         private class Frame implements Comparable<Frame> {
             long frameNum;
@@ -892,6 +890,9 @@ public class StreamConsumer extends HandlerThread {
                 break;
             case EVENT_STREAM_FETCHER_FETCH_COMPLETE:
                 what = MainActivity.MSG_STREAM_CONSUMER_FETCH_COMPLETE;
+                break;
+            case EVENT_STREAM_FETCHER_FINAL_BLOCK_ID_LEARNED:
+                what = MainActivity.MSG_STREAM_FETCHER_FINAL_BLOCK_ID_LEARNED;
                 break;
             case EVENT_STREAM_PLAYER_FRAME_PLAYED:
                 what = MainActivity.MSG_STREAM_BUFFER_FRAME_PLAYED;

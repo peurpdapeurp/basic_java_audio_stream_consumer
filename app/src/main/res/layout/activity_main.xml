@@ -19,55 +19,68 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
-        <TextView
-            android:id="@+id/stream_name_input_label"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Stream name:"
-            android:textColor="#000000"
-            android:textStyle="bold" />
-
-        <EditText
-            android:id="@+id/stream_name_input"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ems="10"
-            android:inputType="textPersonName"
-            android:text="default_stream_name" />
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal">
 
             <LinearLayout
-                android:layout_width="243dp"
-                android:layout_height="wrap_content"
+                android:layout_width="117dp"
+                android:layout_height="match_parent"
                 android:orientation="vertical">
 
                 <TextView
-                    android:id="@+id/stream_id_input_label"
+                    android:id="@+id/stream_name_input_label"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Stream id:"
+                    android:text="Stream name:"
                     android:textColor="#000000"
                     android:textStyle="bold" />
 
                 <EditText
-                    android:id="@+id/stream_id_input"
+                    android:id="@+id/stream_name_input"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:ems="10"
                     android:inputType="textPersonName"
-                    android:text="0" />
+                    android:text="test_stream" />
+
             </LinearLayout>
 
-            <Button
-                android:id="@+id/generate_random_id_button"
-                android:layout_width="151dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:text="Generate Random Id" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="100dp"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/stream_id_input_label"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Stream id:"
+                        android:textColor="#000000"
+                        android:textStyle="bold" />
+
+                    <EditText
+                        android:id="@+id/stream_id_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ems="10"
+                        android:inputType="textPersonName"
+                        android:text="0" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/generate_random_id_button"
+                    android:layout_width="151dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:text="Generate Random Id" />
+            </LinearLayout>
         </LinearLayout>
 
         <LinearLayout
@@ -163,11 +176,18 @@
             android:textColor="#000000"
             android:textStyle="bold" />
 
-        <ProgressBar
+        <com.example.audio_consumer.custom_progress_bar.CustomSeekBar
             android:id="@+id/production_progress_bar"
-            style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
+            android:layout_height="20dp"
+            android:layout_margin="5dp"
+            android:max="100"
+            android:paddingLeft="0dp"
+            android:paddingRight="0dp"
+            android:progress="0"
+            android:progressDrawable="@android:color/transparent"
+            android:thumb="@drawable/seek_thumb_normal"
+            android:thumbOffset="0dp" />
 
         <TextView
             android:id="@+id/fetching_progress_bar_label"
@@ -177,11 +197,18 @@
             android:textColor="#000000"
             android:textStyle="bold" />
 
-        <ProgressBar
+        <com.example.audio_consumer.custom_progress_bar.CustomSeekBar
             android:id="@+id/fetching_progress_bar"
-            style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
+            android:layout_height="20dp"
+            android:layout_margin="5dp"
+            android:max="100"
+            android:paddingLeft="0dp"
+            android:paddingRight="0dp"
+            android:progress="0"
+            android:progressDrawable="@android:color/transparent"
+            android:thumb="@drawable/seek_thumb_normal"
+            android:thumbOffset="0dp" />
 
         <TextView
             android:id="@+id/playing_progress_bar_label"
@@ -191,11 +218,18 @@
             android:textColor="#000000"
             android:textStyle="bold" />
 
-        <ProgressBar
+        <com.example.audio_consumer.custom_progress_bar.CustomSeekBar
             android:id="@+id/playing_progress_bar"
-            style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
+            android:layout_height="20dp"
+            android:layout_margin="5dp"
+            android:max="100"
+            android:paddingLeft="0dp"
+            android:paddingRight="0dp"
+            android:progress="0"
+            android:progressDrawable="@android:color/transparent"
+            android:thumb="@drawable/seek_thumb_normal"
+            android:thumbOffset="0dp" />
 
         <TextView
             android:id="@+id/stream_fetch_statistics_label"
@@ -207,7 +241,7 @@
 
         <ScrollView
             android:layout_width="match_parent"
-            android:layout_height="114dp">
+            android:layout_height="44dp">
 
             <LinearLayout
                 android:layout_width="match_parent"

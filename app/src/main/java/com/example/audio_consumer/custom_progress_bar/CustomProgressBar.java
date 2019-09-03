@@ -58,6 +58,7 @@ public class CustomProgressBar extends AppCompatSeekBar {
     }
 
     public void updateSingleSegmentColor(int segNum, int color) {
+        if (segNum >= totalSegments_) return;
         progressItemsList_.get(segNum).color = color;
         invalidate();
     }

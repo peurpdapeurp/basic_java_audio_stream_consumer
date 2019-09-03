@@ -50,7 +50,7 @@ public class StreamConsumer extends HandlerThread {
 
     // Events for stream statistics and ui notifications
     private static final int EVENT_INITIALIZED = 0;
-    private static final int EVENT_STREAM_PLAY_COMPLETE = 1;
+    private static final int EVENT_STREAM_BUFFERING_COMPLETE = 1;
     private static final int EVENT_STREAM_FETCHER_AUDIO_PACKET_RECEIVE = 2;
     private static final int EVENT_STREAM_FETCHER_INTEREST_TIMEOUT = 3;
     private static final int EVENT_STREAM_FETCHER_INTEREST_TRANSMIT = 4;
@@ -60,8 +60,9 @@ public class StreamConsumer extends HandlerThread {
     private static final int EVENT_STREAM_FETCHER_PRODUCTION_WINDOW_GROW = 8;
     private static final int EVENT_STREAM_FETCHER_FETCH_COMPLETE = 9;
     private static final int EVENT_STREAM_FETCHER_FINAL_BLOCK_ID_LEARNED = 10;
-    private static final int EVENT_STREAM_PLAYER_FRAME_PLAYED = 11;
-    private static final int EVENT_STREAM_PLAYER_FRAME_SKIP = 12;
+    private static final int EVENT_STREAM_BUFFER_FRAME_PLAYED = 11;
+    private static final int EVENT_STREAM_BUFFER_FRAME_SKIP = 12;
+    private static final int EVENT_STREAM_BUFFER_FINAL_FRAME_NUM_LEARNED = 13;
 
     private Network network_;
     private StreamFetcher streamFetcher_;
@@ -86,10 +87,6 @@ public class StreamConsumer extends HandlerThread {
         long producerSamplingRate; // samples/sec from producer
     }
 
-    private long getLogTime() {
-        return System.currentTimeMillis();
-    }
-
     public StreamConsumer(Name streamName, InputStreamDataSource outSource, Handler uiHandler,
                           Options options) {
         super("StreamConsumer");
@@ -97,8 +94,7 @@ public class StreamConsumer extends HandlerThread {
         options_ = options;
         outSource_ = outSource;
         uiHandler_ = uiHandler;
-        Log.d(TAG, getLogTime() + "; " +
-                "Initialized (" +
+        Log.d(TAG, "Initialized (" +
                 "framesPerSegment " + options_.framesPerSegment + ", " +
                 "jitterBufferSize " + options_.jitterBufferSize + ", " +
                 "producerSamplingRate " + options_.producerSamplingRate +
@@ -106,14 +102,13 @@ public class StreamConsumer extends HandlerThread {
     }
 
     public void close() {
-        Log.d(TAG, getLogTime() + ": " +
-            "close called");
+        Log.d(TAG, "close called");
         streamFetcher_.close();
         network_.close();
         streamPlayerBuffer_.close();
         handler_.removeCallbacksAndMessages(null);
         handler_.getLooper().quitSafely();
-        notifyUiEvent(EVENT_STREAM_PLAY_COMPLETE, 0);
+        notifyUiEvent(EVENT_STREAM_BUFFERING_COMPLETE, 0);
         streamConsumerClosed_ = true;
     }
 
@@ -233,8 +228,7 @@ public class StreamConsumer extends HandlerThread {
             else {
                 retransmit = true;
             }
-            Log.d(TAG, getLogTime() + ": " +
-                    "send interest (" +
+            Log.d(TAG, "send interest (" +
                     "retx " + retransmit + ", " +
                     "seg num " + segNum + ", " +
                     "name " + interest.getName().toString() +
@@ -257,8 +251,7 @@ public class StreamConsumer extends HandlerThread {
                             e.printStackTrace();
                         }
 
-                        Log.d(TAG, getLogTime() + ": " +
-                                "data received (" +
+                        Log.d(TAG, "data received (" +
                                 "seg num " + callbackSegNum + ", " +
                                 "time " + satisfiedTime + ", " +
                                 "retx " + retransmits.contains(interest.getName()) +
@@ -327,8 +320,7 @@ public class StreamConsumer extends HandlerThread {
         private Handler streamConsumerHandler_;
 
         private void printState() {
-            Log.d(TAG, getLogTime() + ": " +
-                    "State of StreamFetcher:" + "\n" +
+            Log.d(TAG, "State of StreamFetcher:" + "\n" +
                     "streamFetchStartTime_ " + streamFetchStartTime_ + ", " +
                     "streamFinalBlockId_ " +
                         ((streamFinalBlockId_ == FINAL_BLOCK_ID_UNKNOWN) ? "unknown" : streamFinalBlockId_) +
@@ -359,8 +351,7 @@ public class StreamConsumer extends HandlerThread {
             rttEstimator_ = new RttEstimator(new RttEstimator.Options(streamPlayerBufferJitterDelay, streamPlayerBufferJitterDelay));
             msPerSegNum_ = calculateMsPerSeg(options_.producerSamplingRate, options_.framesPerSegment);
             streamConsumerHandler_ = new Handler(streamConsumerLooper);
-            Log.d(TAG, getLogTime() + "; " +
-                    "Initialized (" +
+            Log.d(TAG, "Initialized (" +
                     "maxRto / initialRto " + streamPlayerBufferJitterDelay + ", " +
                     "ms per seg num " + msPerSegNum_ +
                     ")");
@@ -376,8 +367,7 @@ public class StreamConsumer extends HandlerThread {
 
         private void close() {
             if (closed_) return;
-            Log.d(TAG, getLogTime() + ": " +
-                    "close called");
+            Log.d(TAG, "close called");
             printState();
             notifyUiEvent(EVENT_STREAM_FETCHER_FETCH_COMPLETE, 0);
             closed_ = true;
@@ -433,8 +423,7 @@ public class StreamConsumer extends HandlerThread {
             long playbackDeadline = streamPlayerBuffer_.getPlaybackDeadline(segFirstFrameNum);
             long transmitTime = System.currentTimeMillis();
             if (playbackDeadline != StreamPlayerBuffer.PLAYBACK_DEADLINE_UNKNOWN && transmitTime + rto > playbackDeadline) {
-                Log.d(TAG, getLogTime() + ": " +
-                        "interest skipped (" +
+                Log.d(TAG, "interest skipped (" +
                         "seg num " + segNum + ", " +
                         "first frame num " + segFirstFrameNum + ", " +
                         "rto " + rto + ", " +
@@ -473,8 +462,7 @@ public class StreamConsumer extends HandlerThread {
             }
             network_.sendInterest(interestToSend);
             recordPacketEvent(segNum, EVENT_STREAM_FETCHER_INTEREST_TRANSMIT);
-            Log.d(TAG, getLogTime() + ": " +
-                    "interest transmitted (" +
+            Log.d(TAG, "interest transmitted (" +
                     "seg num " + segNum + ", " +
                     "first frame num " + segFirstFrameNum + ", " +
                     "rto " + rto + ", " +
@@ -500,12 +488,11 @@ public class StreamConsumer extends HandlerThread {
 
             if (segSendTimes_.containsKey(segNum)) {
                 long rtt = receiveTime - segSendTimes_.get(segNum);
-                Log.d(TAG, getLogTime() + ": " +
-                        "rtt estimator add measure (rtt " + rtt + ", " +
+                Log.d(TAG, "rtt estimator add measure (rtt " + rtt + ", " +
                         "num outstanding interests " + N_EXPECTED_SAMPLES +
                         ")");
                 rttEstimator_.addMeasurement(rtt, N_EXPECTED_SAMPLES);
-                Log.d(TAG, getLogTime() + " : " + "rto after last measure add: " +
+                Log.d(TAG, "rto after last measure add: " +
                         rttEstimator_.getEstimatedRto());
                 segSendTimes_.remove(segNum);
             }
@@ -514,6 +501,7 @@ public class StreamConsumer extends HandlerThread {
             boolean audioPacketWasAppNack = audioPacket.getMetaInfo().getType() == ContentType.NACK;
             if (audioPacketWasAppNack) {
                 finalBlockId = Helpers.bytesToLong(audioPacket.getContent().getImmutableArray());
+                Log.d(TAG, "audioPacketWasAppNack, final block id " + finalBlockId);
                 streamFinalBlockId_ = finalBlockId;
                 streamPlayerBuffer_.receiveFinalSegNum(finalBlockId);
             }
@@ -532,8 +520,7 @@ public class StreamConsumer extends HandlerThread {
                 notifyUiEvent(EVENT_STREAM_FETCHER_FINAL_BLOCK_ID_LEARNED, streamFinalBlockId_);
             }
 
-            Log.d(TAG, getLogTime() + ": " +
-                    "receive data (" +
+            Log.d(TAG, "receive data (" +
                     "name " + audioPacket.getName().toString() + ", " +
                     "seg num " + segNum + ", " +
                     "app nack " + audioPacketWasAppNack + ", " +
@@ -604,8 +591,7 @@ public class StreamConsumer extends HandlerThread {
                     break;
             }
 
-            Log.d(TAG, getLogTime() + ": " +
-                    "recorded packet event (" +
+            Log.d(TAG, "recorded packet event (" +
                     "seg num " + segNum + ", " +
                     "event " + eventString + ", " +
                     "num outstanding interests " + rtoTokens_.size() +
@@ -660,8 +646,7 @@ public class StreamConsumer extends HandlerThread {
         private long framesPlayed_ = 0;
 
         private void printState() {
-            Log.d(TAG, getLogTime() + ": " +
-                    "State of StreamPlayerBuffer:" + "\n" +
+            Log.d(TAG, "State of StreamPlayerBuffer:" + "\n" +
                     "streamPlayStartTime_ " + streamPlayStartTime_ + ", " +
                     "framesPlayed_ " + framesPlayed_ + ", " +
                     "framesSkipped_ " + framesSkipped_ + "\n" +
@@ -682,8 +667,7 @@ public class StreamConsumer extends HandlerThread {
             streamConsumer_ = streamConsumer;
             jitterBufferDelay_ = options_.jitterBufferSize * calculateMsPerFrame(options_.producerSamplingRate);
             msPerFrame_ = calculateMsPerFrame(options_.producerSamplingRate);
-            Log.d(TAG, getLogTime() + "; " +
-                    "Initialized (" +
+            Log.d(TAG, "Initialized (" +
                     "jitterBufferDelay_ " + jitterBufferDelay_ + ", " +
                     "ms per frame " + msPerFrame_ +
                     ")");
@@ -714,16 +698,14 @@ public class StreamConsumer extends HandlerThread {
 
             long currentTime = System.currentTimeMillis();
             if (currentTime > highestFrameNumPlayedDeadline_) {
-                Log.d(TAG, getLogTime() + ": " +
-                        "reached playback deadline for frame " + highestFrameNumPlayed_ + " (" +
+                Log.d(TAG, "reached playback deadline for frame " + highestFrameNumPlayed_ + " (" +
                         "playback deadline " + highestFrameNumPlayedDeadline_ +
                         ")"
                 );
 
                 Frame nextFrame = jitterBuffer_.peek();
                 boolean gotExpectedFrame = nextFrame != null && nextFrame.frameNum == highestFrameNumPlayed_;
-                Log.d(TAG, getLogTime() + ": " +
-                        "next frame was " + ((gotExpectedFrame) ? "" : "not ") + "expected frame (" +
+                Log.d(TAG, "next frame was " + ((gotExpectedFrame) ? "" : "not ") + "expected frame (" +
                         "expected frame num " + highestFrameNumPlayed_ + ", " +
                         "frame num " + ((nextFrame != null) ? nextFrame.frameNum : "unknown (null frame)") +
                         ")");
@@ -733,7 +715,7 @@ public class StreamConsumer extends HandlerThread {
                         (finalFrameNumDeadline_ != FINAL_FRAME_NUM_DEADLINE_UNKNOWN &&
                             currentTime > finalFrameNumDeadline_));
                     jitterBuffer_.poll();
-                    notifyUiEvent(EVENT_STREAM_PLAYER_FRAME_PLAYED, highestFrameNumPlayed_);
+                    notifyUiEvent(EVENT_STREAM_BUFFER_FRAME_PLAYED, highestFrameNumPlayed_);
                 }
                 else {
                     if (nextFrame == null || nextFrame.frameNum > highestFrameNumPlayed_) {
@@ -741,7 +723,7 @@ public class StreamConsumer extends HandlerThread {
                         outSource_.write(getSilentFrame(),
                             (finalFrameNumDeadline_ != FINAL_FRAME_NUM_DEADLINE_UNKNOWN &&
                                 currentTime > finalFrameNumDeadline_));
-                        notifyUiEvent(EVENT_STREAM_PLAYER_FRAME_SKIP, highestFrameNumPlayed_);
+                        notifyUiEvent(EVENT_STREAM_BUFFER_FRAME_SKIP, highestFrameNumPlayed_);
                     }
                 }
 
@@ -752,19 +734,23 @@ public class StreamConsumer extends HandlerThread {
             if (finalFrameNumDeadline_ == FINAL_FRAME_NUM_DEADLINE_UNKNOWN) { return; }
 
             if (currentTime > finalFrameNumDeadline_) {
-                Log.d(TAG, getLogTime() + ": " +
-                        "finished playing all frames (" +
-                        "final frame num " + finalFrameNum_  + ", " +
+                Log.d(TAG, "finished playing all frames (" +
+                        "final seg num " +
+                            ((finalSegNum_ == FINAL_SEG_NUM_UNKNOWN) ?
+                                "unknown" : finalSegNum_) + ", " +
+                        "final frame num " +
+                            ((finalFrameNum_ == FINAL_FRAME_NUM_UNKNOWN) ?
+                                "unknown" : finalFrameNum_) + ", " +
                         "playback deadline " + finalFrameNumDeadline_ +
                         ")");
+                outSource_.write(getSilentFrame(), true);
                 printState();
                 streamConsumer_.close(); // close the entire stream consumer, now that playback is done
             }
         }
 
         private void processAdtsFrames(byte[] frames, long segNum) {
-            Log.d(TAG, getLogTime() + " : " +
-                    "Processing adts frames (" +
+            Log.d(TAG, "processing adts frames (" +
                     "length " + frames.length + ", " +
                     "seg num " + segNum +
                     ")");
@@ -773,8 +759,7 @@ public class StreamConsumer extends HandlerThread {
             for (int i = 0; i < parsedFramesLength; i++) {
                 byte[] frameData = parsedFrames.get(i);
                 long frameNum = (segNum * options_.framesPerSegment) + i;
-                Log.d(TAG, getLogTime() + ": " +
-                        "got frame " + frameNum);
+                Log.d(TAG, "got frame " + frameNum);
                 jitterBuffer_.add(new Frame(frameNum, frameData));
             }
             // to detect end of stream, assume that every batch of frames besides the batch of
@@ -782,8 +767,8 @@ public class StreamConsumer extends HandlerThread {
             // frames in it
             if (parsedFrames.size() < options_.framesPerSegment) {
                 finalFrameNum_ = (segNum * options_.framesPerSegment) + parsedFrames.size() - 1;
-                Log.d(TAG, getLogTime() + ": " +
-                        "detected end of stream (" +
+                notifyUiEvent(EVENT_STREAM_BUFFER_FINAL_FRAME_NUM_LEARNED, finalFrameNum_);
+                Log.d(TAG, "detected end of stream (" +
                         "final seg num " + segNum + ", " +
                         "final frame num " + finalFrameNum_ +
                         ")");
@@ -792,12 +777,16 @@ public class StreamConsumer extends HandlerThread {
         }
 
         private void receiveFinalSegNum(long finalSegNum) {
+            Log.d(TAG, "receiveFinalSegNum: " + finalSegNum);
             if (finalFrameNum_ != FINAL_FRAME_NUM_UNKNOWN) return;
             if (finalSegNum_ != FINAL_SEG_NUM_UNKNOWN) return;
 
             finalSegNum_ = finalSegNum;
-            // calculate the finalFrameNumDeadline_ based on the assumption that the last segment had framesPerSegment_ frames in it
-            finalFrameNumDeadline_ = getPlaybackDeadline((finalSegNum * options_.framesPerSegment) + options_.framesPerSegment);
+            // calculate the finalFrameNumDeadline_ based on the assumption that the last segment
+            // had framesPerSegment_ frames in it
+            finalFrameNumDeadline_ = getPlaybackDeadline(
+                    (finalSegNum * options_.framesPerSegment) +
+                            options_.framesPerSegment);
         }
 
         private ArrayList<byte[]> parseAdtsFrames(byte[] frames) {
@@ -819,8 +808,7 @@ public class StreamConsumer extends HandlerThread {
             }
             long framePlayTimeOffset = (Constants.SAMPLES_PER_ADTS_FRAME * Constants.MILLISECONDS_PER_SECOND * frameNum) / options_.producerSamplingRate;
             long deadline = streamPlayStartTime_ + jitterBufferDelay_ + framePlayTimeOffset;
-            Log.d(TAG, getLogTime() + ": " +
-                    "calculated deadline (" +
+            Log.d(TAG, "calculated deadline (" +
                     "frame num " + frameNum + ", " +
                     "framePlayTimeOffset " + framePlayTimeOffset + ", " +
                     "jitterBufferDelay " + jitterBufferDelay_ + ", " +
@@ -872,8 +860,8 @@ public class StreamConsumer extends HandlerThread {
             case EVENT_INITIALIZED:
                 what = MainActivity.MSG_STREAM_CONSUMER_INITIALIZED;
                 break;
-            case EVENT_STREAM_PLAY_COMPLETE:
-                what = MainActivity.MSG_STREAM_BUFFER_PLAY_COMPLETE;
+            case EVENT_STREAM_BUFFERING_COMPLETE:
+                what = MainActivity.MSG_STREAM_BUFFER_BUFFERING_COMPLETE;
                 break;
             case EVENT_STREAM_FETCHER_AUDIO_PACKET_RECEIVE:
                 what = MainActivity.MSG_STREAM_FETCHER_AUDIO_RETRIEVED;
@@ -893,11 +881,14 @@ public class StreamConsumer extends HandlerThread {
             case EVENT_STREAM_FETCHER_FINAL_BLOCK_ID_LEARNED:
                 what = MainActivity.MSG_STREAM_FETCHER_FINAL_BLOCK_ID_LEARNED;
                 break;
-            case EVENT_STREAM_PLAYER_FRAME_PLAYED:
+            case EVENT_STREAM_BUFFER_FRAME_PLAYED:
                 what = MainActivity.MSG_STREAM_BUFFER_FRAME_PLAYED;
                 break;
-            case EVENT_STREAM_PLAYER_FRAME_SKIP:
+            case EVENT_STREAM_BUFFER_FRAME_SKIP:
                 what = MainActivity.MSG_STREAM_BUFFER_FRAME_SKIP;
+                break;
+            case EVENT_STREAM_BUFFER_FINAL_FRAME_NUM_LEARNED:
+                what = MainActivity.MSG_STREAM_BUFFER_FINAL_FRAME_NUM_LEARNED;
                 break;
             default:
                 throw new IllegalStateException("unrecognized event_code: " + event_code);

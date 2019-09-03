@@ -39,14 +39,21 @@ public class MainActivity extends AppCompatActivity {
     public static final int MSG_STREAM_FETCHER_FINAL_BLOCK_ID_LEARNED = 6;
     public static final int MSG_STREAM_BUFFER_FRAME_PLAYED = 7;
     public static final int MSG_STREAM_BUFFER_FRAME_SKIP = 8;
-    public static final int MSG_STREAM_BUFFER_PLAY_COMPLETE = 9;
+    public static final int MSG_STREAM_BUFFER_FINAL_FRAME_NUM_LEARNED = 9;
+    public static final int MSG_STREAM_BUFFER_BUFFERING_COMPLETE = 10;
 
     // Messages from Stream Player
-    public static final int MSG_STREAM_PLAYER_PLAY_COMPLETE = 10;
+    public static final int MSG_STREAM_PLAYER_PLAY_COMPLETE = 11;
+
+    // Private constants
+    private static final int EVENT_INTEREST_SKIP = 0;
+    private static final int EVENT_DATA_RETRIEVED = 1;
+    private static final int EVENT_NACK_RETRIEVED = 2;
+    private static final int EVENT_FRAME_SKIPPED = 3;
+    private static final int EVENT_FRAME_PLAYED = 4;
 
     Button startFetchingButton_;
     Button generateRandomIdButton_;
-    TextView streamFetchStatistics_;
     EditText streamNameInput_;
     EditText streamIdInput_;
     EditText framesPerSegmentInput_;
@@ -55,7 +62,9 @@ public class MainActivity extends AppCompatActivity {
 
     TextView productionProgressBarLabel_;
     CustomProgressBar productionProgressBar_;
+    TextView fetchingProgressBarLabel_;
     CustomProgressBar fetchingProgressBar_;
+    TextView playingProgressBarLabel_;
     CustomProgressBar playingProgressBar_;
 
     HashMap<Name, StreamState> streamStates_;
@@ -75,17 +84,27 @@ public class MainActivity extends AppCompatActivity {
     private class StreamState {
         // Public constants
         private static final int FINAL_BLOCK_ID_UNKNOWN = -1;
+        private static final int FINAL_FRAME_NUM_UNKNOWN = -1;
         private static final int NO_SEGMENTS_PRODUCED = -1;
 
-        private StreamState(StreamConsumer streamConsumer, StreamPlayer streamPlayer) {
+        private StreamState(StreamConsumer streamConsumer, StreamPlayer streamPlayer,
+                            long framesPerSegment) {
             this.streamConsumer = streamConsumer;
             this.streamPlayer = streamPlayer;
+            this.framesPerSegment = framesPerSegment;
         }
 
         private StreamConsumer streamConsumer;
         private StreamPlayer streamPlayer;
         private long finalBlockId = FINAL_BLOCK_ID_UNKNOWN;
         private long highestSegProduced = NO_SEGMENTS_PRODUCED;
+        private long finalFrameNum = FINAL_FRAME_NUM_UNKNOWN;
+        private long framesPerSegment;
+        private long segmentsFetched = 0;
+        private long interestsSkipped = 0;
+        private long nacksFetched = 0;
+        private long framesPlayed = 0;
+        private long framesSkipped = 0;
     }
 
     @Override
@@ -105,43 +124,43 @@ public class MainActivity extends AppCompatActivity {
                 Name streamName = uiEventInfo.streamName;
                 StreamState streamState = streamStates_.get(streamName);
 
+                if (streamState == null) {
+                    Log.w(TAG, "streamState was null for msg " + msg.what + " from stream name " +
+                            streamName.toString());
+                    return;
+                }
+
                 switch (msg.what) {
                     case MSG_STREAM_CONSUMER_INITIALIZED: {
-                        Log.d(TAG, System.currentTimeMillis() + ": " +
-                                "fetching of stream " + streamName.toString() + " started");
+                        Log.d(TAG, "fetching of stream " + streamName.toString() + " started");
                         streamState.streamConsumer.getHandler()
                                 .obtainMessage(StreamConsumer.MSG_FETCH_START)
                                 .sendToTarget();
                         streamState.streamConsumer.getHandler()
                                 .obtainMessage(StreamConsumer.MSG_PLAY_START)
                                 .sendToTarget();
+                        resetProgressBars();
                         productionProgressBar_.setStreamName(streamName);
+                        startFetchingButton_.setEnabled(false);
                         break;
                     }
                     case MSG_STREAM_CONSUMER_FETCH_COMPLETE: {
-                        Log.d(TAG, System.currentTimeMillis() + ": " +
-                                "fetching of stream " + streamName.toString() + " finished");
-                        break;
-                    }
-                    case MSG_STREAM_BUFFER_PLAY_COMPLETE: {
-                        Log.d(TAG, System.currentTimeMillis() + ": " +
-                                "buffering of stream " + streamName.toString() + " finished");
+                        Log.d(TAG, "fetching of stream " + streamName.toString() + " finished");
                         break;
                     }
                     case MSG_STREAM_PLAYER_PLAY_COMPLETE: {
-                        Log.d(TAG, System.currentTimeMillis() + ": " +
-                                "playing of stream " + streamName.toString() +
+                        Log.d(TAG, "playing of stream " + streamName.toString() +
                                 " finished");
                         streamState.streamConsumer.close();
                         streamState.streamPlayer.close();
                         streamStates_.remove(streamName);
+                        startFetchingButton_.setEnabled(true);
                         break;
                     }
                     case MSG_STREAM_FETCHER_PRODUCTION_WINDOW_GROW: {
                         long highestSegProduced = uiEventInfo.arg1;
                         if (!streamName.equals(productionProgressBar_.getStreamName())) {
-                            Log.w(TAG, System.currentTimeMillis() + ": " +
-                                    "production window growth for non displayed stream (" +
+                            Log.w(TAG, "production window growth for non displayed stream (" +
                                     "current production progress bar stream name " +
                                         productionProgressBar_.getStreamName().toString() + ", " +
                                     "received production growth for stream name " +
@@ -150,45 +169,69 @@ public class MainActivity extends AppCompatActivity {
                             return;
                         }
                         streamState.highestSegProduced = highestSegProduced;
-                        updateProductionProgressBar(streamState.highestSegProduced,
-                                streamState.finalBlockId);
+                        updateProductionProgressBar(streamState);
                         updateProductionProgressBarLabel(streamState);
                         break;
                     }
                     case MSG_STREAM_FETCHER_INTEREST_SKIP: {
                         long segNum = uiEventInfo.arg1;
+                        streamState.interestsSkipped++;
+                        updateFetchingProgressBar(segNum, EVENT_INTEREST_SKIP, streamState);
+                        updateFetchingProgressBarLabel(streamState);
                         break;
                     }
                     case MSG_STREAM_FETCHER_AUDIO_RETRIEVED: {
                         long segNum = uiEventInfo.arg1;
+                        streamState.segmentsFetched++;
+                        updateFetchingProgressBar(segNum, EVENT_DATA_RETRIEVED, streamState);
+                        updateFetchingProgressBarLabel(streamState);
                         break;
                     }
                     case MSG_STREAM_FETCHER_NACK_RETRIEVED: {
                         long segNum = uiEventInfo.arg1;
+                        streamState.nacksFetched++;
+                        updateFetchingProgressBar(segNum, EVENT_NACK_RETRIEVED, streamState);
+                        updateFetchingProgressBarLabel(streamState);
                         break;
                     }
                     case MSG_STREAM_FETCHER_FINAL_BLOCK_ID_LEARNED: {
                         streamState.finalBlockId = uiEventInfo.arg1;
-                        updateProductionProgressBar(streamState.highestSegProduced,
-                                streamState.finalBlockId);
+                        updateProductionProgressBar(streamState);
                         updateProductionProgressBarLabel(streamState);
+                        break;
                     }
                     case MSG_STREAM_BUFFER_FRAME_PLAYED: {
-                        long highestFrameNumPlayed = uiEventInfo.arg1;
+                        long frameNum = uiEventInfo.arg1;
+                        streamState.framesPlayed++;
+                        updatePlayingProgressBar(frameNum, EVENT_FRAME_PLAYED, streamState);
+                        updatePlayingProgressBarLabel(streamState);
                         break;
                     }
                     case MSG_STREAM_BUFFER_FRAME_SKIP: {
-                        long highestFrameNumPlayed = uiEventInfo.arg1;
+                        long frameNum = uiEventInfo.arg1;
+                        streamState.framesSkipped++;
+                        updatePlayingProgressBar(frameNum, EVENT_FRAME_SKIPPED, streamState);
+                        updatePlayingProgressBarLabel(streamState);
+                        break;
+                    }
+                    case MSG_STREAM_BUFFER_BUFFERING_COMPLETE: {
+                        Log.d(TAG, "buffering of stream " + streamName.toString() +
+                                " finished");
+                        break;
+                    }
+                    case MSG_STREAM_BUFFER_FINAL_FRAME_NUM_LEARNED: {
+                        streamState.finalFrameNum = uiEventInfo.arg1;
+                        Log.d(TAG, "learned final frame num " + streamState.finalFrameNum);
+                        updatePlayingProgressBarLabel(streamState);
                         break;
                     }
                     default: {
-                        throw new IllegalStateException();
+                        throw new IllegalStateException("unexpected msg " + msg.what);
                     }
                 }
             }
         };
 
-        streamFetchStatistics_ = (TextView) findViewById(R.id.stream_fetch_statistics);
         streamNameInput_ = (EditText) findViewById(R.id.stream_name_input);
         streamIdInput_ = (EditText) findViewById(R.id.stream_id_input);
         framesPerSegmentInput_ = (EditText) findViewById(R.id.frames_per_segment_input);
@@ -200,17 +243,21 @@ public class MainActivity extends AppCompatActivity {
         productionProgressBar_.init();
 
         productionProgressBarLabel_ = (TextView) findViewById(R.id.production_progress_bar_label);
-        String newProductionProgressBarLabel =
-                getString(R.string.production_progress_bar_label) + " " + "(segment ?/?)";
-        productionProgressBarLabel_.setText(newProductionProgressBarLabel);
+        initProductionProgressBarLabel();
 
         fetchingProgressBar_ = (CustomProgressBar) findViewById(R.id.fetching_progress_bar);
         fetchingProgressBar_.getThumb().setAlpha(0);
         fetchingProgressBar_.init();
 
+        fetchingProgressBarLabel_ = (TextView) findViewById(R.id.fetching_progress_bar_label);
+        initFetchingProgressBarLabel();
+
         playingProgressBar_ = (CustomProgressBar) findViewById(R.id.playing_progress_bar);
         playingProgressBar_.getThumb().setAlpha(0);
         playingProgressBar_.init();
+
+        playingProgressBarLabel_ = (TextView) findViewById(R.id.playing_progress_bar_label);
+        initPlayingProgressBarLabel();
 
         startFetchingButton_ = (Button) findViewById(R.id.start_fetch_button);
         startFetchingButton_.setOnClickListener(new View.OnClickListener() {
@@ -232,14 +279,16 @@ public class MainActivity extends AppCompatActivity {
                 lastStreamName_ = streamName;
                 StreamPlayer streamPlayer = new StreamPlayer(ctx_, transferSource,
                         streamName, handler_);
+                long framesPerSegment = Long.parseLong(framesPerSegmentInput_.getText().toString());
                 StreamConsumer streamConsumer = new StreamConsumer(
                         streamName,
                         transferSource,
                         handler_,
-                        new StreamConsumer.Options(Long.parseLong(framesPerSegmentInput_.getText().toString()),
+                        new StreamConsumer.Options(framesPerSegment,
                                 Long.parseLong(jitterBufferSizeInput_.getText().toString()),
                                 Long.parseLong(producerSamplingRateInput_.getText().toString())));
-                streamStates_.put(streamName, new StreamState(streamConsumer, streamPlayer));
+                streamStates_.put(streamName, new StreamState(streamConsumer, streamPlayer,
+                        framesPerSegment));
                 streamConsumer.start();
             }
         });
@@ -266,28 +315,154 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    private void updateProductionProgressBar(long highestSegProduced, long finalBlockId) {
-        boolean finalBlockIdKnown = finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN;
+    private void updateProductionProgressBar(StreamState streamState) {
+        boolean finalBlockIdKnown = streamState.finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN;
         if (finalBlockIdKnown) {
-            productionProgressBar_.setTotalSegments((int) finalBlockId + 1);
+            productionProgressBar_.setTotalSegments((int) streamState.finalBlockId + 1);
         }
-        if (finalBlockId == StreamState.FINAL_BLOCK_ID_UNKNOWN &&
-                ((float) highestSegProduced / (float) productionProgressBar_.getTotalSegments()) > 0.90f) {
+        if (!finalBlockIdKnown &&
+                ((float) streamState.highestSegProduced / (float) productionProgressBar_.getTotalSegments()) > 0.90f) {
             productionProgressBar_.setTotalSegments(productionProgressBar_.getTotalSegments() * 2);
         }
 
-        productionProgressBar_.updateSingleSegmentColor((int) highestSegProduced, R.color.green);
+        productionProgressBar_.updateSingleSegmentColor((int) streamState.highestSegProduced,
+                R.color.green);
+    }
+
+    private void initProductionProgressBarLabel() {
+        String newProductionProgressBarLabel =
+                getString(R.string.production_progress_bar_label) + "\n" + "(" +
+                        "produced " + "?" + ", " +
+                        "total segments " + "?" +
+                        ")";
+        productionProgressBarLabel_.setText(newProductionProgressBarLabel);
     }
 
     private void updateProductionProgressBarLabel(StreamState streamState) {
+        String label =
+                getString(R.string.production_progress_bar_label) + "\n" + "(" +
+                        "produced " +
+                            ((streamState.highestSegProduced == StreamState.NO_SEGMENTS_PRODUCED) ?
+                                    "?" : streamState.highestSegProduced) + ", " +
+                        "total segments " +
+                            (streamState.finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN ?
+                                    streamState.finalBlockId : "?") +
+                        ")";
+        productionProgressBarLabel_.setText(label);
+    }
+
+    private void updateFetchingProgressBar(long segNum, int event_code, StreamState streamState) {
+        boolean finalBlockIdKnown = streamState.finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN;
+        if (finalBlockIdKnown) {
+            fetchingProgressBar_.setTotalSegments((int) streamState.finalBlockId + 1);
+        }
+        if (!finalBlockIdKnown &&
+                ((float) streamState.highestSegProduced / (float) fetchingProgressBar_.getTotalSegments()) > 0.90f) {
+            fetchingProgressBar_.setTotalSegments(fetchingProgressBar_.getTotalSegments() * 2);
+        }
+
+        int segmentColor;
+        switch (event_code) {
+            case EVENT_INTEREST_SKIP:
+                segmentColor = R.color.black;
+                break;
+            case EVENT_DATA_RETRIEVED:
+                segmentColor = R.color.green;
+                break;
+            case EVENT_NACK_RETRIEVED:
+                segmentColor = R.color.red;
+                break;
+            default:
+                Log.w(TAG, "unrecognized event_code " + event_code);
+                return;
+        }
+        fetchingProgressBar_.updateSingleSegmentColor((int) segNum, segmentColor);
+    }
+
+    private void initFetchingProgressBarLabel() {
+        String label =
+                getString(R.string.fetching_progress_bar_label) + "\n" + "(" +
+                        "datas " + "?" + ", " +
+                        "skips " + "?" + ", " +
+                        "nacks " + "?" + ", " +
+                        "total segments " + "?" +
+                        ")";
+        ;
+        fetchingProgressBarLabel_.setText(label);
+    }
+
+    private void updateFetchingProgressBarLabel(StreamState streamState) {
         String newProductionProgressBarLabel =
-                getString(R.string.production_progress_bar_label) + " " +
-                        "(segment " +
-                        ((streamState.highestSegProduced == StreamState.NO_SEGMENTS_PRODUCED) ?
-                                "?" : streamState.highestSegProduced) +
-                        "/" +
-                        (streamState.finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN ?
-                                streamState.finalBlockId : "?") + ")";
-        productionProgressBarLabel_.setText(newProductionProgressBarLabel);
+                getString(R.string.fetching_progress_bar_label) + "\n" + "(" +
+                        "datas " + streamState.segmentsFetched + ", " +
+                        "skips " + streamState.interestsSkipped + ", " +
+                        "nacks " + streamState.nacksFetched + ", " +
+                        "total segments " +
+                            (streamState.finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN ?
+                                    streamState.finalBlockId : "?") +
+                        ")";
+
+        fetchingProgressBarLabel_.setText(newProductionProgressBarLabel);
+    }
+
+    private void updatePlayingProgressBar(long frameNum, int event_code, StreamState streamState) {
+        boolean finalSegNumKnown = streamState.finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN;
+        boolean finalFrameNumKnown = streamState.finalFrameNum != StreamState.FINAL_FRAME_NUM_UNKNOWN;
+        if (finalSegNumKnown && !finalFrameNumKnown) {
+            playingProgressBar_.setTotalSegments((int) (streamState.framesPerSegment * streamState.finalBlockId));
+        }
+        else if (finalFrameNumKnown) {
+            playingProgressBar_.setTotalSegments((int) streamState.finalFrameNum + 1);
+        }
+        if (!finalSegNumKnown && !finalFrameNumKnown &&
+                ((float) streamState.highestSegProduced / (float) playingProgressBar_.getTotalSegments()) > 0.90f) {
+            playingProgressBar_.setTotalSegments(playingProgressBar_.getTotalSegments() * 2);
+        }
+
+        int segmentColor;
+        switch (event_code) {
+            case EVENT_FRAME_SKIPPED:
+                segmentColor = R.color.black;
+                break;
+            case EVENT_FRAME_PLAYED:
+                segmentColor = R.color.green;
+                break;
+            default:
+                Log.w(TAG, "unrecognized event_code " + event_code);
+                return;
+        }
+        playingProgressBar_.updateSingleSegmentColor((int) frameNum, segmentColor);
+    }
+
+    private void initPlayingProgressBarLabel() {
+        String label =
+                getString(R.string.fetching_progress_bar_label) + "\n" + "(" +
+                        "plays " + "?" + ", " +
+                        "skips " + "?" + ", " +
+                        "total frames " + "?" +
+                        ")";
+        ;
+        playingProgressBarLabel_.setText(label);
+    }
+
+    private void updatePlayingProgressBarLabel(StreamState streamState) {
+        String label =
+                getString(R.string.playing_progress_bar_label) + "\n" + "(" +
+                        "plays " + streamState.framesPlayed + ", " +
+                        "skips " + streamState.framesSkipped + ", " +
+                        "total frames " +
+                        (streamState.finalFrameNum != StreamState.FINAL_FRAME_NUM_UNKNOWN ?
+                                streamState.finalFrameNum : "?") +
+                        ")";
+        playingProgressBarLabel_.setText(label);
+    }
+
+    private void resetProgressBars() {
+        productionProgressBar_.reset();
+        initProductionProgressBarLabel();
+        fetchingProgressBar_.reset();
+        initFetchingProgressBarLabel();
+        playingProgressBar_.reset();
+        initPlayingProgressBarLabel();
     }
 }

@@ -72,8 +72,9 @@ public class StreamPlayer {
                 Log.d(TAG, System.currentTimeMillis() + ": " +
                         "Exoplayer state changed to: " + playbackStateString);
 
-                if (playbackState == Player.STATE_ENDED)
+                if (playbackState == Player.STATE_ENDED) {
                     notifyUiEvent(EVENT_STREAM_PLAY_COMPLETE, 0);
+                }
             }
         });
 
@@ -84,10 +85,6 @@ public class StreamPlayer {
 
     public void close() {
         player_.release();
-    }
-
-    public Name getStreamName() {
-        return streamName_;
     }
 
     private void notifyUiEvent(int event_code, long arg1) {

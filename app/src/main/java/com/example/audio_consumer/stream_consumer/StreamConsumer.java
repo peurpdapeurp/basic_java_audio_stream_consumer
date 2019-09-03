@@ -417,16 +417,17 @@ public class StreamConsumer extends HandlerThread {
 
             Interest interestToSend = new Interest(streamName_);
             interestToSend.getName().appendSegment(segNum);
+            long avgRtt = (long) rttEstimator_.getAvgRtt();
             long rto = (long) rttEstimator_.getEstimatedRto();
             // if playback deadline for first frame of segment is known, set interest lifetime to expire at playback deadline
             long segFirstFrameNum = options_.framesPerSegment * segNum;
             long playbackDeadline = streamPlayerBuffer_.getPlaybackDeadline(segFirstFrameNum);
             long transmitTime = System.currentTimeMillis();
-            if (playbackDeadline != StreamPlayerBuffer.PLAYBACK_DEADLINE_UNKNOWN && transmitTime + rto > playbackDeadline) {
+            if (playbackDeadline != StreamPlayerBuffer.PLAYBACK_DEADLINE_UNKNOWN && transmitTime + avgRtt > playbackDeadline) {
                 Log.d(TAG, "interest skipped (" +
                         "seg num " + segNum + ", " +
                         "first frame num " + segFirstFrameNum + ", " +
-                        "rto " + rto + ", " +
+                        "avgRtt " + avgRtt + ", " +
                         "transmit time " + transmitTime + ", " +
                         "playback deadline " + playbackDeadline + ", " +
                         "retx: " + isRetransmission +

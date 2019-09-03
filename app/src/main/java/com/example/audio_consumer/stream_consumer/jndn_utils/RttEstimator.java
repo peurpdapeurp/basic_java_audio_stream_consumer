@@ -163,7 +163,7 @@ public class RttEstimator {
     /**
      * Returns the average RTT.
      */
-    double
+    public double
     getAvgRtt()
     {
         return rttAvg_;

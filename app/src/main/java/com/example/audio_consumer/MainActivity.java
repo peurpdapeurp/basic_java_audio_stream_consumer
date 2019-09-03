@@ -381,7 +381,7 @@ public class MainActivity extends AppCompatActivity {
     private void initFetchingProgressBarLabel() {
         String label =
                 getString(R.string.fetching_progress_bar_label) + "\n" + "(" +
-                        "datas " + "?" + ", " +
+                        "data " + "?" + ", " +
                         "skips " + "?" + ", " +
                         "nacks " + "?" + ", " +
                         "total segments " + "?" +
@@ -393,7 +393,7 @@ public class MainActivity extends AppCompatActivity {
     private void updateFetchingProgressBarLabel(StreamState streamState) {
         String newProductionProgressBarLabel =
                 getString(R.string.fetching_progress_bar_label) + "\n" + "(" +
-                        "datas " + streamState.segmentsFetched + ", " +
+                        "data " + streamState.segmentsFetched + ", " +
                         "skips " + streamState.interestsSkipped + ", " +
                         "nacks " + streamState.nacksFetched + ", " +
                         "total segments " +

@@ -172,7 +172,24 @@
             android:id="@+id/start_fetch_button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginBottom="5dp"
             android:text="Start Fetch" />
+
+        <TextView
+            android:id="@+id/current_stream_name_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/current_stream_name_label"
+            android:textColor="#000000"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/current_stream_name_display"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="None"
+            android:layout_marginBottom="5dp"
+            android:textColor="#000000" />
 
         <TextView
             android:id="@+id/production_progress_bar_label"

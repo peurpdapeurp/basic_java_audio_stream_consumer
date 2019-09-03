@@ -58,7 +58,7 @@ public class MainActivity extends AppCompatActivity {
     EditText framesPerSegmentInput_;
     EditText jitterBufferSizeInput_;
     EditText producerSamplingRateInput_;
-
+    TextView currentStreamNameDisplay_;
     TextView productionProgressBarLabel_;
     CustomProgressBar productionProgressBar_;
     TextView fetchingProgressBarLabel_;
@@ -140,6 +140,7 @@ public class MainActivity extends AppCompatActivity {
                                 .sendToTarget();
                         resetProgressBars();
                         productionProgressBar_.setStreamName(streamName);
+                        currentStreamNameDisplay_.setText(streamName.toString());
                         startFetchingButton_.setEnabled(false);
                         break;
                     }
@@ -236,6 +237,8 @@ public class MainActivity extends AppCompatActivity {
         framesPerSegmentInput_ = (EditText) findViewById(R.id.frames_per_segment_input);
         jitterBufferSizeInput_ = (EditText) findViewById(R.id.jitter_buffer_size_input);
         producerSamplingRateInput_ = (EditText) findViewById(R.id.producer_sampling_rate_input);
+
+        currentStreamNameDisplay_ = (TextView) findViewById(R.id.current_stream_name_display);
 
         productionProgressBar_ = (CustomProgressBar) findViewById(R.id.production_progress_bar);
         productionProgressBar_.getThumb().setAlpha(0);

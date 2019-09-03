@@ -75,11 +75,11 @@
                 </LinearLayout>
 
                 <Button
-                    android:id="@+id/generate_random_id_button"
+                    android:id="@+id/increment_id_button"
                     android:layout_width="151dp"
                     android:layout_height="match_parent"
                     android:layout_weight="1"
-                    android:text="Generate Random Id" />
+                    android:text="Increment Id" />
             </LinearLayout>
         </LinearLayout>
 

@@ -22,7 +22,6 @@ import com.example.audio_consumer.stream_consumer.StreamConsumer;
 
 import net.named_data.jndn.Name;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 
 public class MainActivity extends AppCompatActivity {
@@ -53,7 +52,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int EVENT_FRAME_PLAYED = 4;
 
     Button startFetchingButton_;
-    Button generateRandomIdButton_;
+    Button incrementIdButton_;
     EditText streamNameInput_;
     EditText streamIdInput_;
     EditText framesPerSegmentInput_;
@@ -293,11 +292,11 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        generateRandomIdButton_ = (Button) findViewById(R.id.generate_random_id_button);
-        generateRandomIdButton_.setOnClickListener(new View.OnClickListener() {
+        incrementIdButton_ = (Button) findViewById(R.id.increment_id_button);
+        incrementIdButton_.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                streamIdInput_.setText(Long.toString(Helpers.getRandomLongBetweenRange(0, 10000)));
+                streamIdInput_.setText(Long.toString(Long.parseLong(streamIdInput_.getText().toString()) + 1));
             }
         });
 

@@ -332,7 +332,7 @@ public class MainActivity extends AppCompatActivity {
     private void initProductionProgressBarLabel() {
         String newProductionProgressBarLabel =
                 getString(R.string.production_progress_bar_label) + "\n" + "(" +
-                        "produced " + "?" + ", " +
+                        "anticipated " + "?" + ", " +
                         "total segments " + "?" +
                         ")";
         productionProgressBarLabel_.setText(newProductionProgressBarLabel);
@@ -341,7 +341,7 @@ public class MainActivity extends AppCompatActivity {
     private void updateProductionProgressBarLabel(StreamState streamState) {
         String label =
                 getString(R.string.production_progress_bar_label) + "\n" + "(" +
-                        "produced " +
+                        "anticipated " +
                             ((streamState.highestSegProduced == StreamState.NO_SEGMENTS_PRODUCED) ?
                                     "?" : streamState.highestSegProduced) + ", " +
                         "total segments " +

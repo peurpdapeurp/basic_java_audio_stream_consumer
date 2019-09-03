@@ -171,6 +171,7 @@ public class MainActivity extends AppCompatActivity {
                         streamState.highestSegProduced = highestSegProduced;
                         updateProductionProgressBar(streamState);
                         updateProductionProgressBarLabel(streamState);
+                        Log.d(TAG, "production window grow " + highestSegProduced);
                         break;
                     }
                     case MSG_STREAM_FETCHER_INTEREST_SKIP: {
@@ -221,7 +222,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                     case MSG_STREAM_BUFFER_FINAL_FRAME_NUM_LEARNED: {
                         streamState.finalFrameNum = uiEventInfo.arg1;
-                        Log.d(TAG, "learned final frame num " + streamState.finalFrameNum);
                         updatePlayingProgressBarLabel(streamState);
                         break;
                     }
@@ -345,10 +345,10 @@ public class MainActivity extends AppCompatActivity {
                 getString(R.string.production_progress_bar_label) + "\n" + "(" +
                         "anticipated " +
                             ((streamState.highestSegProduced == StreamState.NO_SEGMENTS_PRODUCED) ?
-                                    "?" : streamState.highestSegProduced) + ", " +
+                                    "?" : streamState.highestSegProduced + 1) + ", " +
                         "total segments " +
                             (streamState.finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN ?
-                                    streamState.finalBlockId : "?") +
+                                    streamState.finalBlockId + 1: "?") +
                         ")";
         productionProgressBarLabel_.setText(label);
     }
@@ -396,12 +396,12 @@ public class MainActivity extends AppCompatActivity {
     private void updateFetchingProgressBarLabel(StreamState streamState) {
         String newProductionProgressBarLabel =
                 getString(R.string.fetching_progress_bar_label) + "\n" + "(" +
-                        "data " + streamState.segmentsFetched + ", " +
+                        "data " + (streamState.segmentsFetched + streamState.nacksFetched) + ", " +
                         "skips " + streamState.interestsSkipped + ", " +
                         "nacks " + streamState.nacksFetched + ", " +
                         "total segments " +
                             (streamState.finalBlockId != StreamState.FINAL_BLOCK_ID_UNKNOWN ?
-                                    streamState.finalBlockId : "?") +
+                                    streamState.finalBlockId + 1: "?") +
                         ")";
 
         fetchingProgressBarLabel_.setText(newProductionProgressBarLabel);
@@ -454,7 +454,7 @@ public class MainActivity extends AppCompatActivity {
                         "skips " + streamState.framesSkipped + ", " +
                         "total frames " +
                         (streamState.finalFrameNum != StreamState.FINAL_FRAME_NUM_UNKNOWN ?
-                                streamState.finalFrameNum : "?") +
+                                streamState.finalFrameNum + 1 : "?") +
                         ")";
         playingProgressBarLabel_.setText(label);
     }

@@ -168,6 +168,12 @@
 
         </LinearLayout>
 
+        <Button
+            android:id="@+id/start_fetch_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Start Fetch" />
+
         <TextView
             android:id="@+id/production_progress_bar_label"
             android:layout_width="match_parent"
@@ -230,12 +236,6 @@
             android:progressDrawable="@android:color/transparent"
             android:thumb="@drawable/seek_thumb_normal"
             android:thumbOffset="0dp" />
-
-        <Button
-            android:id="@+id/start_fetch_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Start Fetch" />
 
     </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

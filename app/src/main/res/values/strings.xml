@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">NASC</string>
+    <string name="app_name">NDN Audio Stream Consumer</string>
     <string name="network_prefix">/ndnpttv2</string>
     <string name="stream_statistics_label">Stream Statistics:</string>
     <string name="current_stream_name_label">Fetched Stream Name:</string>

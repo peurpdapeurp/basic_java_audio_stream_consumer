@@ -54,7 +54,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int EVENT_FINAL_FRAME_NUM_LEARNED = 4;
     private static final int EVENT_FINAL_BLOCK_ID_LEARNED = 5;
 
-    ImageButton startFetchingButton_;
+    ImageButton fetchButton_;
+    boolean currentlyFetching_ = false;
     Button incrementIdButton_;
     EditText streamNameInput_;
     EditText streamIdInput_;
@@ -140,7 +141,6 @@ public class MainActivity extends AppCompatActivity {
                         resetProgressBar();
                         progressBar_.setStreamName(streamName);
                         currentStreamNameDisplay_.setText(streamName.toString());
-                        startFetchingButton_.setImageDrawable(getDrawable(R.drawable.stop_image));
                         break;
                     }
                     case MSG_STREAM_CONSUMER_FETCH_COMPLETE: {
@@ -153,7 +153,8 @@ public class MainActivity extends AppCompatActivity {
                         streamState.streamConsumer.close();
                         streamState.streamPlayer.close();
                         streamStates_.remove(streamName);
-                        startFetchingButton_.setImageDrawable(getDrawable(R.drawable.play_image));
+                        fetchButton_.setImageDrawable(getDrawable(R.drawable.play_image));
+                        currentlyFetching_ = false;
                         break;
                     }
                     case MSG_STREAM_FETCHER_PRODUCTION_WINDOW_GROW: {
@@ -244,8 +245,8 @@ public class MainActivity extends AppCompatActivity {
         streamStatistics_ = (TextView) findViewById(R.id.stream_statistics);
         initStreamStatisticsDisplay();
 
-        startFetchingButton_ = (ImageButton) findViewById(R.id.start_fetch_button);
-        startFetchingButton_.setOnClickListener(new View.OnClickListener() {
+        fetchButton_ = (ImageButton) findViewById(R.id.start_fetch_button);
+        fetchButton_.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 if (lastStreamName_ != null) {
@@ -255,6 +256,17 @@ public class MainActivity extends AppCompatActivity {
                         lastStreamState.streamPlayer.close();
                         streamStates_.remove(lastStreamName_);
                     }
+                }
+                if (currentlyFetching_) {
+                    StreamState lastStreamState = streamStates_.get(lastStreamName_);
+                    if (lastStreamState != null) {
+                        lastStreamState.streamConsumer.close();
+                        lastStreamState.streamPlayer.close();
+                        streamStates_.remove(lastStreamName_);
+                    }
+                    currentlyFetching_ = false;
+                    fetchButton_.setImageDrawable(getDrawable(R.drawable.play_image));
+                    return;
                 }
                 InputStreamDataSource transferSource = new InputStreamDataSource();
                 Name streamName = new Name(getString(R.string.network_prefix))
@@ -275,6 +287,8 @@ public class MainActivity extends AppCompatActivity {
                 streamStates_.put(streamName, new StreamState(streamConsumer, streamPlayer,
                         framesPerSegment));
                 streamConsumer.start();
+                currentlyFetching_ = true;
+                fetchButton_.setImageDrawable(getDrawable(R.drawable.stop_image));
             }
         });
 

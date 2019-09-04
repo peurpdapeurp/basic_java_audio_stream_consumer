@@ -168,12 +168,31 @@
 
         </LinearLayout>
 
-        <Button
-            android:id="@+id/start_fetch_button"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="5dp"
-            android:text="Start Fetch" />
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/start_fetch_button"
+                android:layout_width="53dp"
+                android:layout_height="55dp"
+                android:scaleType="fitCenter"
+                app:srcCompat="@drawable/play_image" />
+
+            <com.example.audio_consumer.custom_progress_bar.CustomProgressBar
+                android:id="@+id/progress_bar"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_margin="5dp"
+                android:max="100"
+                android:paddingLeft="0dp"
+                android:paddingRight="0dp"
+                android:progress="0"
+                android:progressDrawable="@android:color/transparent"
+                android:thumb="@drawable/seek_thumb_normal"
+                android:thumbOffset="0dp" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/current_stream_name_label"
@@ -192,67 +211,19 @@
             android:textColor="#000000" />
 
         <TextView
-            android:id="@+id/production_progress_bar_label"
+            android:id="@+id/stream_statistics_label"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Production Progress"
+            android:text="@string/stream_statistics_label"
             android:textColor="#000000"
             android:textStyle="bold" />
-
-        <com.example.audio_consumer.custom_progress_bar.CustomProgressBar
-            android:id="@+id/production_progress_bar"
-            android:layout_width="match_parent"
-            android:layout_height="20dp"
-            android:layout_margin="5dp"
-            android:max="100"
-            android:paddingLeft="0dp"
-            android:paddingRight="0dp"
-            android:progress="0"
-            android:progressDrawable="@android:color/transparent"
-            android:thumb="@drawable/seek_thumb_normal"
-            android:thumbOffset="0dp" />
 
         <TextView
-            android:id="@+id/fetching_progress_bar_label"
+            android:id="@+id/stream_statistics"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Fetching Progress"
-            android:textColor="#000000"
-            android:textStyle="bold" />
-
-        <com.example.audio_consumer.custom_progress_bar.CustomProgressBar
-            android:id="@+id/fetching_progress_bar"
-            android:layout_width="match_parent"
-            android:layout_height="20dp"
-            android:layout_margin="5dp"
-            android:max="100"
-            android:paddingLeft="0dp"
-            android:paddingRight="0dp"
-            android:progress="0"
-            android:progressDrawable="@android:color/transparent"
-            android:thumb="@drawable/seek_thumb_normal"
-            android:thumbOffset="0dp" />
-
-        <TextView
-            android:id="@+id/playing_progress_bar_label"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Playing Progress"
-            android:textColor="#000000"
-            android:textStyle="bold" />
-
-        <com.example.audio_consumer.custom_progress_bar.CustomProgressBar
-            android:id="@+id/playing_progress_bar"
-            android:layout_width="match_parent"
-            android:layout_height="20dp"
-            android:layout_margin="5dp"
-            android:max="100"
-            android:paddingLeft="0dp"
-            android:paddingRight="0dp"
-            android:progress="0"
-            android:progressDrawable="@android:color/transparent"
-            android:thumb="@drawable/seek_thumb_normal"
-            android:thumbOffset="0dp" />
+            android:text="None"
+            android:textColor="#000000" />
 
     </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

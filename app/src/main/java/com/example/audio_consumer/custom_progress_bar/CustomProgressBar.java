@@ -21,7 +21,7 @@ public class CustomProgressBar extends AppCompatSeekBar {
     private static final String TAG = "CustomSeekBar";
 
     // Private constants
-    public static final int DEFAULT_TOTAL_SEGMENTS = 10;
+    public static final int DEFAULT_TOTAL_SEGMENTS = 30;
 
     Name currentStreamName_;
     private int totalSegments_ = DEFAULT_TOTAL_SEGMENTS;

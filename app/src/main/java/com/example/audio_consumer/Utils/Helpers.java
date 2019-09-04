@@ -13,6 +13,10 @@ import java.util.Arrays;
 
 public class Helpers {
 
+    public static long getNumFrames(long finalBlockId, long framesPerSegment) {
+        return finalBlockId * framesPerSegment + framesPerSegment - 1;
+    }
+
     public static long getRandomLongBetweenRange(double min, double max){
         long x = (long) ((Math.random()*((max-min)+1))+min);
         return x;
